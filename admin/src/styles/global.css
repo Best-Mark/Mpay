@@ -1,0 +1,90 @@
+:root {
+  --pc-primary: #2f6fed;
+  --pc-bg: #f2f4f8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--pc-bg);
+  color: #1f2d3d;
+  font-size: 14px;
+}
+
+.pc-page {
+  padding: 16px;
+}
+
+.pc-card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
+}
+
+.pc-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.pc-pagination {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.pc-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.pc-stat {
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
+}
+
+.pc-stat .label {
+  color: #8492a6;
+  font-size: 13px;
+}
+
+.pc-stat .value {
+  font-size: 24px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.pc-stat .value.warn {
+  color: #e6a23c;
+}
+
+.pc-stat .value.danger {
+  color: #f56c6c;
+}
+
+.pc-stat .value.ok {
+  color: #67c23a;
+}
+
+.pc-mono {
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  font-size: 12px;
+}

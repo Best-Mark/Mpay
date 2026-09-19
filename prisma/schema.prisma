@@ -1,0 +1,510 @@
+// 统一支付中心 数据模型
+// 金额一律使用 Decimal(18,2)，绝不使用 float/double
+// 所有时间字段使用 DateTime，MySQL 侧为 DATETIME(3)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// 1. 支付订单表（核心）
+// ============================================================
+model PayOrder {
+  id                BigInt    @id @default(autoincrement())
+  /// 支付中心订单号（全局唯一，对外返回）
+  payOrderNo        String    @unique @map("pay_order_no") @db.VarChar(32)
+  /// 业务系统 AppId
+  appId             String    @map("app_id") @db.VarChar(32)
+  /// 业务系统订单号
+  merchantOrderNo   String    @map("merchant_order_no") @db.VarChar(64)
+  /// 支付渠道: wechat / alipay / unionpay / mock
+  channel           String    @db.VarChar(20)
+  /// 渠道商户号
+  channelMchId      String?   @map("channel_mch_id") @db.VarChar(64)
+  /// 渠道子商户号（服务商模式预留）
+  channelSubMchId   String?   @map("channel_sub_mch_id") @db.VarChar(64)
+  /// 交易类型: JSAPI / NATIVE / APP / H5 / MWEB / FACE_TO_FACE
+  tradeType         String    @map("trade_type") @db.VarChar(20)
+  /// 订单金额（元）
+  amount            Decimal   @db.Decimal(18, 2)
+  /// 已退款金额（元）
+  refundedAmount    Decimal   @default(0.00) @map("refunded_amount") @db.Decimal(18, 2)
+  /// 实收金额（渠道实际收到，用于对账，元）
+  paidAmount        Decimal?  @map("paid_amount") @db.Decimal(18, 2)
+  currency          String    @default("CNY") @db.VarChar(8)
+  /// 商品标题
+  subject           String    @db.VarChar(256)
+  /// 商品描述
+  body              String?   @db.VarChar(1024)
+  /// 附加数据，回调原样返回给业务系统
+  attach            String?   @db.VarChar(512)
+  /// 下单终端 IP
+  clientIp          String?   @map("client_ip") @db.VarChar(64)
+  /// 支付者标识（微信 openid / 支付宝 buyer_id）
+  payerId           String?   @map("payer_id") @db.VarChar(64)
+  /// 渠道交易号（微信 transaction_id / 支付宝 trade_no）
+  channelTxnId      String?   @map("channel_txn_id") @db.VarChar(64)
+  /// 订单状态: CREATED / PAYING / SUCCESS / CLOSED / REVOKED / REFUNDING / REFUNDED / FAILED
+  status            String    @default("CREATED") @db.VarChar(20)
+  /// 支付成功时间
+  paidAt            DateTime? @map("paid_at")
+  /// 订单失效时间（过期未支付自动关闭）
+  expireAt          DateTime? @map("expire_at")
+  closedAt          DateTime? @map("closed_at")
+  /// 支付结果通知状态: PENDING / SUCCESS / FAILED / DEAD
+  notifyStatus      String    @default("PENDING") @map("notify_status") @db.VarChar(20)
+  notifyCount       Int       @default(0) @map("notify_count")
+  /// 下单时返回给业务系统的支付参数（唤起支付用），加密或不存储敏感串由配置决定
+  payParams         Json?     @map("pay_params")
+  /// 渠道原始响应
+  channelRaw        Json?     @map("channel_raw")
+  extra             Json?
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  refunds RefundOrder[]
+
+  /// 同一业务系统下业务订单号唯一 —— 幂等的第一道防线
+  @@unique([appId, merchantOrderNo], name: "uk_app_merchant_order")
+  @@index([status, createdAt], name: "idx_status_created")
+  @@index([channel, channelTxnId], name: "idx_channel_txn")
+  @@index([paidAt], name: "idx_paid_at")
+  @@index([appId, createdAt], name: "idx_app_created")
+  /// 业务幂等键：同一业务系统内订单号唯一
+  @@unique([appId, merchantOrderNo], map: "uk_app_merchant_order")
+  @@map("pay_order")
+}
+
+// ============================================================
+// 2. 退款订单表（核心）
+// ============================================================
+model RefundOrder {
+  id                   BigInt    @id @default(autoincrement())
+  /// 支付中心退款单号
+  refundNo             String    @unique @map("refund_no") @db.VarChar(32)
+  /// 所属支付订单号
+  payOrderNo           String    @map("pay_order_no") @db.VarChar(32)
+  appId                String    @map("app_id") @db.VarChar(32)
+  /// 业务系统退款单号
+  merchantRefundNo     String    @map("merchant_refund_no") @db.VarChar(64)
+  /// 原业务订单号（冗余，便于查询）
+  merchantOrderNo      String?   @map("merchant_order_no") @db.VarChar(64)
+  channel              String    @db.VarChar(20)
+  channelMchId         String?   @map("channel_mch_id") @db.VarChar(64)
+  /// 退款金额（元）
+  amount               Decimal   @db.Decimal(18, 2)
+  /// 原订单金额（元，冗余）
+  payAmount            Decimal   @map("pay_amount") @db.Decimal(18, 2)
+  /// 退款原因
+  reason               String?   @db.VarChar(256)
+  /// 退款状态: CREATED / PROCESSING / SUCCESS / FAILED / CLOSED
+  status               String    @default("CREATED") @db.VarChar(20)
+  /// 渠道退款单号
+  channelRefundId      String?   @map("channel_refund_id") @db.VarChar(64)
+  /// 渠道退款状态原样
+  channelRefundStatus  String?   @map("channel_refund_status") @db.VarChar(32)
+  /// 退款资金来源: UNSETTLED_FUNDS / AVAILABLE / ...
+  fundsAccount         String?   @map("funds_account") @db.VarChar(32)
+  refundedAt           DateTime? @map("refunded_at")
+  notifyStatus         String    @default("PENDING") @map("notify_status") @db.VarChar(20)
+  notifyCount          Int       @default(0) @map("notify_count")
+  failReason           String?   @map("fail_reason") @db.VarChar(512)
+  channelRaw           Json?     @map("channel_raw")
+  extra                Json?
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  payOrder PayOrder @relation(fields: [payOrderNo], references: [payOrderNo])
+
+  /// 同一业务系统下业务退款单号唯一 —— 退款幂等防线
+  @@unique([appId, merchantRefundNo], name: "uk_app_merchant_refund")
+  @@index([payOrderNo], name: "idx_pay_order_no")
+  @@index([status, createdAt], name: "idx_status_created")
+  /// 业务幂等键：同一业务系统内退款单号唯一
+  @@unique([appId, merchantRefundNo], map: "uk_app_merchant_refund")
+  @@map("refund_order")
+}
+
+// ============================================================
+// 3. 支付渠道配置表（核心）
+// ============================================================
+model ChannelConfig {
+  id                BigInt   @id @default(autoincrement())
+  /// 渠道标识: wechat / alipay / unionpay / mock
+  channel           String   @db.VarChar(20)
+  /// 配置名称（同一渠道可配多个商户号）
+  name              String   @db.VarChar(64)
+  /// 渠道商户号
+  mchId             String   @map("mch_id") @db.VarChar(64)
+  /// 子商户号（服务商模式预留）
+  subMchId          String?  @map("sub_mch_id") @db.VarChar(64)
+  /// 渠道应用 ID（微信 appid / 支付宝 appid）
+  channelAppId      String?  @map("channel_app_id") @db.VarChar(64)
+  /// 生效的终端/场景，空表示全部
+  scene             String?  @db.VarChar(32)
+  /// 是否沙箱/Mock 模式
+  isSandbox         Boolean  @default(true) @map("is_sandbox")
+  enabled           Boolean  @default(true)
+  /// 优先级：同渠道多商户号时按优先级选路
+  priority          Int      @default(0)
+  /// 商户 API 私钥（RSA 私钥，AES 加密存储）
+  privateKey        String?  @map("private_key") @db.Text
+  /// 渠道平台公钥/证书（加密存储）
+  platformCert      String?  @map("platform_cert") @db.Text
+  /// 商户 API 证书序列号（微信 V3）
+  certSerialNo      String?  @map("cert_serial_no") @db.VarChar(64)
+  /// 微信 V3 API 密钥（加密存储）
+  apiV3Key          String?  @map("api_v3_key") @db.VarChar(128)
+  /// 签名类型: RSA2 / RSA / SHA256-RSA2048
+  signType          String?  @map("sign_type") @db.VarChar(32)
+  /// 渠道回调地址（支付中心侧）
+  notifyUrl         String?  @map("notify_url") @db.VarChar(256)
+  /// 账单下载所需的额外参数（如支付宝的 bill_user_id）
+  billParams        Json?    @map("bill_params")
+  /// 其他扩展参数（网关地址、版本等）
+  extra             Json?
+  remark            String?  @db.VarChar(256)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([channel, mchId, scene], name: "uk_channel_mch_scene")
+  @@index([channel, enabled], name: "idx_channel_enabled")
+  @@map("channel_config")
+}
+
+// ============================================================
+// 4. 业务系统配置表（核心：AppId / 回调地址 / 密钥）
+// ============================================================
+model MerchantApp {
+  id               BigInt   @id @default(autoincrement())
+  /// 业务系统 AppId（对外）
+  appId            String   @unique @map("app_id") @db.VarChar(32)
+  /// 业务项目名称
+  name             String   @db.VarChar(64)
+  /// 签名密钥 AppSecret（AES 加密存储，永不明文返回）
+  appSecret        String   @map("app_secret") @db.VarChar(512)
+  /// 支付结果通知地址
+  payNotifyUrl     String   @map("pay_notify_url") @db.VarChar(256)
+  /// 退款结果通知地址
+  refundNotifyUrl  String?  @map("refund_notify_url") @db.VarChar(256)
+  /// 回调地址白名单之外的附加校验：IP 白名单（逗号分隔）
+  ipWhitelist      String?  @map("ip_whitelist") @db.VarChar(512)
+  /// 是否校验回调响应签名
+  verifyNotifySign Boolean  @default(true) @map("verify_notify_sign")
+  /// 允许使用的支付渠道（JSON 数组），空表示全部
+  allowChannels    Json?    @map("allow_channels")
+  /// 单笔限额（元），0 表示不限
+  limitPerOrder    Decimal  @default(0.00) @map("limit_per_order") @db.Decimal(18, 2)
+  enabled          Boolean  @default(true)
+  remark           String?  @db.VarChar(256)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("merchant_app")
+}
+
+// ============================================================
+// 5. 渠道账单明细表（核心：对账原料）
+// ============================================================
+model ChannelBill {
+  id                 BigInt    @id @default(autoincrement())
+  /// 账单日期（渠道账单归属日，YYYY-MM-DD）
+  billDate           DateTime  @map("bill_date") @db.Date
+  /// 归属对账批次
+  taskId             BigInt?   @map("task_id")
+  /// 渠道
+  channel            String    @db.VarChar(20)
+  /// 渠道商户号
+  mchId              String    @map("mch_id") @db.VarChar(64)
+  /// 账单类型: TRADE(支付) / REFUND(退款) / TRANSFER
+  billType           String    @default("TRADE") @map("bill_type") @db.VarChar(16)
+  /// 渠道交易号
+  tradeNo            String    @map("trade_no") @db.VarChar(64)
+  /// 商户订单号（即支付中心订单号）
+  outTradeNo         String?   @map("out_trade_no") @db.VarChar(64)
+  /// 业务系统订单号（从 outTradeNo 关联解析）
+  merchantOrderNo    String?   @map("merchant_order_no") @db.VarChar(64)
+  /// 归属业务系统 AppId（解析后回填）
+  appId              String?   @map("app_id") @db.VarChar(32)
+  /// 交易金额（元，支付为正、退款为负或独立列，按渠道规范化）
+  amount             Decimal   @db.Decimal(18, 2)
+  /// 退款金额（元）
+  refundAmount       Decimal   @default(0.00) @map("refund_amount") @db.Decimal(18, 2)
+  /// 实收/实退净额
+  netAmount          Decimal?  @map("net_amount") @db.Decimal(18, 2)
+  /// 渠道侧交易状态（规范化后）: SUCCESS / REFUND / CLOSED / REVOKED / PAYING
+  tradeStatus        String    @map("trade_status") @db.VarChar(20)
+  /// 渠道原始状态字段
+  rawStatus          String?   @map("raw_status") @db.VarChar(64)
+  /// 渠道交易时间
+  tradeTime          DateTime? @map("trade_time")
+  /// 付款方标识
+  payerId            String?   @map("payer_id") @db.VarChar(64)
+  /// 商品名称
+  subject            String?   @db.VarChar(256)
+  /// 交易类型
+  tradeType          String?   @map("trade_type") @db.VarChar(32)
+  /// 手续费（微信/支付宝部分账单提供）
+  fee                Decimal?  @db.Decimal(18, 2)
+  /// 原始行数据（便于追溯）
+  raw                Json?
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  @@unique([billDate, channel, mchId, tradeNo, billType], name: "uk_bill_line")
+  @@index([billDate, channel], name: "idx_bill_date_channel")
+  @@index([outTradeNo], name: "idx_out_trade_no")
+  @@index([tradeNo], name: "idx_trade_no")
+  @@index([taskId], name: "idx_task_id")
+  @@map("channel_bill")
+
+  /// 归属对账批次（反向关系）
+  task ReconcileTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+}
+
+// ============================================================
+// 6. 对账结果主表（核心）
+// ============================================================
+model ReconcileTask {
+  id                 BigInt    @id @default(autoincrement())
+  /// 对账批次号
+  taskNo             String    @unique @map("task_no") @db.VarChar(32)
+  /// 对账周期类型: DAILY / MONTHLY / CUSTOM
+  periodType         String    @default("DAILY") @map("period_type") @db.VarChar(16)
+  /// 账单日期（日对账为 T-1；月对账为月末日）
+  billDate           DateTime  @map("bill_date") @db.Date
+  /// 周期起止（自定义对账用）
+  startTime          DateTime? @map("start_time")
+  endTime            DateTime? @map("end_time")
+  /// 渠道，ALL 表示全部
+  channel            String    @default("ALL") @db.VarChar(20)
+  /// 业务系统 AppId，ALL 表示全部
+  appId              String    @default("ALL") @map("app_id") @db.VarChar(32)
+  /// 商户号，ALL 表示全部
+  mchId              String    @default("ALL") @map("mch_id") @db.VarChar(64)
+  /// 对账状态: RUNNING / SUCCESS(全平) / PARTIAL(有差异) / FAILED(执行失败)
+  status             String    @default("RUNNING") @db.VarChar(20)
+  /// 渠道账单总笔数
+  channelCount       Int       @default(0) @map("channel_count")
+  /// 渠道账单总金额
+  channelAmount      Decimal   @default(0.00) @map("channel_amount") @db.Decimal(18, 2)
+  /// 支付中心侧订单笔数（同一周期内 SUCCESS 单）
+  centerCount        Int       @default(0) @map("center_count")
+  /// 支付中心侧订单金额
+  centerAmount       Decimal   @default(0.00) @map("center_amount") @db.Decimal(18, 2)
+  /// 平账笔数
+  matchedCount       Int       @default(0) @map("matched_count")
+  /// 平账金额
+  matchedAmount      Decimal   @default(0.00) @map("matched_amount") @db.Decimal(18, 2)
+  /// 差异笔数
+  diffCount          Int       @default(0) @map("diff_count")
+  /// 差异金额（绝对值合计）
+  diffAmount         Decimal   @default(0.00) @map("diff_amount") @db.Decimal(18, 2)
+  /// 成功率 = 平账笔数 / 渠道笔数
+  matchRate          Decimal?  @map("match_rate") @db.Decimal(10, 4)
+  /// 账单来源: AUTO(自动下载) / MANUAL(手动上传) / API
+  billSource         String    @default("AUTO") @map("bill_source") @db.VarChar(16)
+  /// 触发者: SYSTEM / 管理员用户名
+  triggeredBy        String    @default("SYSTEM") @map("triggered_by") @db.VarChar(64)
+  /// 触发方式: AUTO_SCHEDULE / MANUAL / RETRY
+  triggerType        String    @default("MANUAL") @map("trigger_type") @db.VarChar(20)
+  startedAt          DateTime  @default(now()) @map("started_at")
+  finishedAt         DateTime? @map("finished_at")
+  /// 耗时（毫秒）
+  durationMs         Int?      @map("duration_ms")
+  errorMessage       String?   @map("error_message") @db.VarChar(1024)
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  diffs  ReconcileDiff[]
+  bills  ChannelBill[]
+
+  @@index([billDate, channel], name: "idx_billdate_channel")
+  @@index([status, createdAt], name: "idx_status_created")
+  @@map("reconcile_task")
+}
+
+// ============================================================
+// 7. 对账差异明细表（核心）
+// ============================================================
+model ReconcileDiff {
+  id                BigInt    @id @default(autoincrement())
+  taskId            BigInt    @map("task_id")
+  /// 差异类型:
+  /// CHANNEL_ONLY  长款 - 渠道有、支付中心无
+  /// CENTER_ONLY   短款 - 支付中心有、渠道无
+  /// AMOUNT_DIFF   金额不符 - 双方金额不一致
+  /// STATUS_DIFF   状态不符 - 一方成功一方失败/关闭
+  /// DUPLICATE     重复支付 - 同一业务订单号多笔成功
+  /// REFUND_DIFF   退款差异
+  diffType          String    @map("diff_type") @db.VarChar(20)
+  /// 严重级别: HIGH / MEDIUM / LOW（长款、金额差异为高）
+  severity          String    @default("MEDIUM") @db.VarChar(10)
+  billDate          DateTime  @map("bill_date") @db.Date
+  channel           String    @db.VarChar(20)
+  appId             String?   @map("app_id") @db.VarChar(32)
+  /// 支付中心订单号
+  payOrderNo        String?   @map("pay_order_no") @db.VarChar(32)
+  /// 业务订单号
+  merchantOrderNo   String?   @map("merchant_order_no") @db.VarChar(64)
+  /// 渠道交易号
+  channelTradeNo    String?   @map("channel_trade_no") @db.VarChar(64)
+  /// 支付中心侧金额
+  centerAmount      Decimal?  @map("center_amount") @db.Decimal(18, 2)
+  /// 渠道侧金额
+  channelAmount     Decimal?  @map("channel_amount") @db.Decimal(18, 2)
+  /// 差额 = 渠道金额 - 中心金额
+  diffAmount        Decimal   @default(0.00) @map("diff_amount") @db.Decimal(18, 2)
+  /// 支付中心侧状态
+  centerStatus      String?   @map("center_status") @db.VarChar(20)
+  /// 渠道侧状态
+  channelStatus     String?   @map("channel_status") @db.VarChar(20)
+  /// 处理状态: PENDING(待处理) / PROCESSED(已人工确认平账) / COMPENSATED(已补单) / REVERSED(已冲正) / IGNORED(已忽略)
+  handleStatus      String    @default("PENDING") @map("handle_status") @db.VarChar(20)
+  /// 处理动作说明
+  handleAction      String?   @map("handle_action") @db.VarChar(64)
+  /// 处理人
+  handler           String?   @db.VarChar(64)
+  handleRemark      String?   @map("handle_remark") @db.VarChar(512)
+  handledAt         DateTime? @map("handled_at")
+  /// 关联退款单号（退款差异时）
+  refundNo          String?   @map("refund_no") @db.VarChar(32)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  task ReconcileTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, diffType], name: "idx_task_difftype")
+  @@index([handleStatus, billDate], name: "idx_handle_billdate")
+  @@index([billDate, channel], name: "idx_billdate_channel")
+  @@map("reconcile_diff")
+}
+
+// ============================================================
+// 8. 操作日志表（核心：所有敏感操作留痕）
+// ============================================================
+model OperationLog {
+  id            BigInt   @id @default(autoincrement())
+  /// 操作者：管理员用户名 / SYSTEM / 业务 AppId
+  operator      String   @db.VarChar(64)
+  /// 操作者类型: ADMIN / SYSTEM / MERCHANT
+  operatorType  String   @map("operator_type") @db.VarChar(16)
+  /// 模块: order / refund / channel / merchant / reconcile / admin
+  module        String   @db.VarChar(32)
+  /// 动作: create / update / close / refund / reconcile / handle_diff / login ...
+  action        String   @db.VarChar(64)
+  /// 目标对象 ID
+  targetId      String?  @map("target_id") @db.VarChar(64)
+  /// 详细描述
+  detail        String?  @db.VarChar(1024)
+  /// 变更前/变更后（JSON）
+  payload       Json?
+  ip            String?  @db.VarChar(64)
+  /// 结果: SUCCESS / FAILED
+  result        String   @default("SUCCESS") @db.VarChar(16)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([operator, createdAt], name: "idx_operator_created")
+  @@index([module, createdAt], name: "idx_module_created")
+  @@map("operation_log")
+}
+
+// ============================================================
+// 支撑表 A：异步通知任务表（可靠重试的基础）
+// ============================================================
+model NotifyTask {
+  id              BigInt    @id @default(autoincrement())
+  /// 业务类型: PAY / REFUND
+  bizType         String    @map("biz_type") @db.VarChar(16)
+  /// 业务单号（支付订单号 / 退款单号）
+  bizNo           String    @map("biz_no") @db.VarChar(32)
+  appId           String    @map("app_id") @db.VarChar(32)
+  /// 通知地址（下单时快照，防止业务方改了地址导致历史通知错乱）
+  notifyUrl       String    @map("notify_url") @db.VarChar(256)
+  /// 通知内容（JSON）
+  payload         Json
+  /// 状态: PENDING / SUCCESS / FAILED / DEAD(超过最大重试)
+  status          String    @default("PENDING") @db.VarChar(16)
+  retryCount      Int       @default(0) @map("retry_count")
+  maxRetry        Int       @default(8) @map("max_retry")
+  nextRetryAt     DateTime? @map("next_retry_at")
+  lastStatusCode  Int?      @map("last_status_code")
+  lastResponse    String?   @map("last_response") @db.VarChar(1024)
+  lastError       String?   @map("last_error") @db.VarChar(512)
+  deliveredAt     DateTime? @map("delivered_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, nextRetryAt], name: "idx_status_next")
+  @@index([bizType, bizNo], name: "idx_biz")
+  @@map("notify_task")
+}
+
+// ============================================================
+// 支撑表 B：幂等记录表（防重放、防重复下单最后一道防线）
+// ============================================================
+model IdempotencyRecord {
+  id           BigInt    @id @default(autoincrement())
+  /// 幂等作用域: create_order / refund / close
+  scope        String    @db.VarChar(32)
+  /// 幂等键（通常为 appId + 业务单号 + 请求特征）
+  idemKey      String    @map("idem_key") @db.VarChar(128)
+  /// 请求体指纹（同键不同参数时拒绝）
+  requestHash  String    @map("request_hash") @db.VarChar(64)
+  /// 首次成功响应的快照，重复请求原样返回
+  responseJson Json?     @map("response_json")
+  expireAt     DateTime? @map("expire_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@unique([scope, idemKey], name: "uk_scope_key")
+  @@map("idempotency_record")
+}
+
+// ============================================================
+// 支撑表 C：管理后台账号
+// ============================================================
+model AdminUser {
+  id            BigInt    @id @default(autoincrement())
+  username      String    @unique @db.VarChar(64)
+  passwordHash  String    @map("password_hash") @db.VarChar(128)
+  nickname      String?   @db.VarChar(64)
+  /// 角色: SUPER(超管) / FINANCE(财务) / OPERATOR(运营) / VIEWER(只读)
+  role          String    @default("OPERATOR") @db.VarChar(20)
+  email         String?   @db.VarChar(128)
+  isActive      Boolean   @default(true) @map("is_active")
+  lastLoginAt   DateTime? @map("last_login_at")
+  lastLoginIp   String?   @map("last_login_ip") @db.VarChar(64)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("admin_user")
+}
+
+// ============================================================
+// 支撑表 D：渠道回调原始记录（便于排查渠道通知问题）
+// ============================================================
+model ChannelNotifyLog {
+  id          BigInt   @id @default(autoincrement())
+  channel     String   @db.VarChar(20)
+  /// 通知类型: PAY / REFUND
+  notifyType  String   @map("notify_type") @db.VarChar(16)
+  /// 解析出的支付中心订单号
+  payOrderNo  String?  @map("pay_order_no") @db.VarChar(32)
+  /// 渠道交易号
+  tradeNo     String?  @map("trade_no") @db.VarChar(64)
+  /// 验签是否通过
+  signOk      Boolean  @default(false) @map("sign_ok")
+  /// 处理结果: SUCCESS / IGNORED / FAILED
+  handleResult String? @map("handle_result") @db.VarChar(20)
+  /// 原始报文（headers + body）
+  raw         Json?
+  errorMsg    String?  @map("error_msg") @db.VarChar(512)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([payOrderNo], name: "idx_pay_order_no")
+  @@index([createdAt], name: "idx_created")
+  @@map("channel_notify_log")
+}
