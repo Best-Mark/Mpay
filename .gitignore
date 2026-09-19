@@ -9,6 +9,7 @@ logs/
 storage/bills/
 storage/uploads/
 certs/
+web/public/sdk/
 .DS_Store
 .idea/
 .vscode/
