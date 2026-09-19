@@ -84,6 +84,12 @@ export const api = {
 
   // ===== 日志 =====
   logs: (params) => unwrap(http.get('/admin/logs', { params })),
+
+  // ===== 安装向导（仅未安装时可用）=====
+  installStatus: () => unwrap(http.get('/install/status')),
+  installTestDb: (data) => unwrap(http.post('/install/test-db', data)),
+  installApply: (data) => unwrap(http.post('/install/apply', data)),
+  installRestart: (token) => unwrap(http.post('/install/restart', { token })),
 };
 
 export { getAdmin };

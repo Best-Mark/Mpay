@@ -10,6 +10,7 @@ import { RefundModule } from './modules/refund/refund.module';
 import { NotifyModule } from './modules/notify/notify.module';
 import { ReconcileModule } from './modules/reconcile/reconcile.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { InstallModule } from './modules/install/install.module';
 import { MockModule } from './modules/mock/mock.module';
 import { AllExceptionFilter } from './common/filters/all-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
@@ -26,6 +27,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     NotifyModule,
     ReconcileModule,
     AdminModule,
+    InstallModule,
     MockModule,
   ],
   providers: [

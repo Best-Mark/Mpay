@@ -1,7 +1,9 @@
 import { createRouter, createWebHashHistory } from 'vue-router';
 import { isLogin } from '../utils/auth';
+import { api } from '../api';
 
 const routes = [
+  { path: '/install', component: () => import('../views/Install.vue'), meta: { public: true } },
   { path: '/login', component: () => import('../views/Login.vue'), meta: { public: true } },
   {
     path: '/',
@@ -25,7 +27,25 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach((to) => {
+/** 安装状态缓存：null 表示尚未查询过 */
+let installState = null;
+
+async function ensureInstallState() {
+  if (installState === null) {
+    try {
+      installState = await api.installStatus();
+    } catch {
+      // 接口不可用（后端未就绪等）时按「已安装」处理，避免误挡正常访问
+      installState = { installed: true };
+    }
+  }
+  return installState;
+}
+
+router.beforeEach(async (to) => {
+  const state = await ensureInstallState();
+  if (!state.installed) return to.path === '/install' ? true : '/install';
+  if (to.path === '/install') return '/login';
   if (!to.meta.public && !isLogin()) return '/login';
   return true;
 });

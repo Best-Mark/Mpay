@@ -5,6 +5,7 @@ import { OperationLogService } from '../../common/log/operation-log.service';
 import { BizException } from '../../common/exceptions/biz.exception';
 import { ErrorCode } from '../../common/constants/error-codes';
 import { AdminRole } from '../../common/constants/enums';
+import { PasswordUtil } from '../../common/utils/password.util';
 
 const JWT_SECRET = () => process.env.MASTER_KEY || 'pay-center-jwt-secret';
 const JWT_TTL_SECONDS = 12 * 3600;
@@ -32,17 +33,13 @@ export class AdminAuthService {
 
   // ==================== 密码 ====================
 
+  // 密码哈希与安装向导共用同一算法（pbkdf2$盐$哈希）
   private hashPassword(password: string): string {
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-    return `pbkdf2$${salt}$${hash}`;
+    return PasswordUtil.hash(password);
   }
 
   private verifyPassword(password: string, stored: string): boolean {
-    if (!stored?.startsWith('pbkdf2$')) return false;
-    const [, salt, hash] = stored.split('$');
-    const calc = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-    return crypto.timingSafeEqual(Buffer.from(calc, 'hex'), Buffer.from(hash, 'hex'));
+    return PasswordUtil.verify(password, stored);
   }
 
   // ==================== JWT ====================

@@ -41,6 +41,8 @@ cd admin && npm install && npm run dev   # 管理后台 http://localhost:5173
 
 默认管理员 `admin / Pay@admin123`（首次登录后立即修改）。
 
+全新环境（无 `.env`）启动后，管理后台会自动进入**安装向导**：环境检测 → 填写数据库（**库名可自定义，不存在自动创建**）→ 站点与管理员 → 自动建库建表并创建超管，详见 `docs/DEPLOY.md`。
+
 ## 目录结构
 
 ```

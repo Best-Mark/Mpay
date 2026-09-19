@@ -13,6 +13,9 @@ export const ErrorCode = {
   OPERATION_TOO_FREQUENT: 1004,
   FORBIDDEN: 1005,
   REQUEST_EXPIRED: 1006,
+  /** 系统尚未完成安装向导 */
+  INSTALL_REQUIRED: 1010,
+  ALREADY_INSTALLED: 1011,
 
   // ===== 2xxx 鉴权与签名 =====
   APP_ID_NOT_FOUND: 2001,
@@ -74,6 +77,8 @@ export const ErrorMessage: Record<number, string> = {
   [ErrorCode.OPERATION_TOO_FREQUENT]: '操作过于频繁',
   [ErrorCode.FORBIDDEN]: '禁止访问',
   [ErrorCode.REQUEST_EXPIRED]: '请求已过期',
+  [ErrorCode.INSTALL_REQUIRED]: '系统尚未安装，请先完成安装向导',
+  [ErrorCode.ALREADY_INSTALLED]: '系统已安装',
 
   [ErrorCode.APP_ID_NOT_FOUND]: 'AppId 不存在',
   [ErrorCode.APP_DISABLED]: 'AppId 已停用',

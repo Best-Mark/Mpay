@@ -10,13 +10,25 @@ import { AdminAuthService } from './modules/admin/admin-auth.service';
 import { TraceContext } from './common/utils/trace-context';
 import { ChannelService } from './modules/channel/channel.service';
 import { ensureSchema } from './common/prisma/schema-init';
+import { loadEnvFile, composeDatabaseUrl } from './common/utils/env-file';
+import { checkInstalled } from './modules/install/install.service';
+import { ErrorCode } from './common/constants/error-codes';
 
 async function bootstrap() {
   const logger = new Logger('bootstrap');
 
+  // ===== 环境变量（必须早于 Nest：Prisma 实例化时就要读 DATABASE_URL）=====
+  loadEnvFile();
+  if (!process.env.DATABASE_URL) {
+    const composed = composeDatabaseUrl();
+    if (composed) process.env.DATABASE_URL = composed;
+  }
+  const installed = await checkInstalled();
+  if (!installed) logger.warn('系统尚未安装：请打开管理后台完成安装向导');
+
   // ===== 数据库结构自愈（必须在 Nest 容器初始化前：Prisma 连接时库必须已存在）=====
   // 建库 → 建表 → 应用新版本带来的增量迁移；SCHEMA_AUTO_INIT=false 可关闭
-  if ((process.env.SCHEMA_AUTO_INIT ?? 'true') !== 'false') {
+  if (process.env.DATABASE_URL && (process.env.SCHEMA_AUTO_INIT ?? 'true') !== 'false') {
     try {
       const r = await ensureSchema();
       if (r.databaseCreated) logger.log(`数据库 ${r.database} 不存在，已自动创建`);
@@ -30,6 +42,30 @@ async function bootstrap() {
   }
 
   const app = await NestFactory.create(AppModule, { bodyParser: false });
+
+  // ===== 未安装：只放行安装向导，其余接口返回 503 =====
+  // 未安装态下每 3 秒复检一次：管理员手工补好 .env 后无需重启即可恢复
+  let installedNow = installed;
+  let lastCheck = Date.now();
+  app.use(async (req: any, res: any, next: any) => {
+    if (!installedNow) {
+      const now = Date.now();
+      if (now - lastCheck > 3000) {
+        lastCheck = now;
+        installedNow = await checkInstalled();
+      }
+      if (!installedNow) {
+        if (req.path.startsWith('/api/install') || req.path.startsWith('/docs')) return next();
+        return res.status(503).json({
+          code: ErrorCode.INSTALL_REQUIRED,
+          message: '系统尚未安装，请打开管理后台完成安装向导',
+          data: null,
+          timestamp: Date.now(),
+        });
+      }
+    }
+    next();
+  });
 
   // ===== 安全头 =====
   app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: false }));

@@ -16,7 +16,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   async onModuleInit() {
-    await this.$connect();
+    // 未安装 / 数据库不可用时不能阻断启动（安装向导需要能够访问）
+    try {
+      await this.$connect();
+    } catch (e: any) {
+      console.error('[prisma] 连接失败（未安装或配置有误）:', e?.message);
+    }
   }
 
   async onModuleDestroy() {
