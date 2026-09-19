@@ -152,6 +152,15 @@ X-Sign = HMAC_SHA256(appSecret, 待签串)  // hex 小写
 
 完整步骤见 `docs/DEPLOY.md`（进程清单 / 建库建表 / Nginx / 定时任务 / 检查清单）。
 
+服务器上更新到最新版本，一条命令即可（拉代码 → 装依赖 → 构建后端 / 后台 / 官网 → 重启 pm2 → 校验并重载 Nginx）：
+
+```bash
+bash update.sh            # 全量更新
+bash update.sh --web      # 只重建 C 端官网（改文案、样式时用）
+bash update.sh --admin    # 只重建管理后台
+bash update.sh --no-deps  # 跳过 npm install
+```
+
 ```bash
 npm run build && npm run start:prod        # 后端（PM2 推荐）
 cd admin && npm run build                  # 前端产物 admin/dist 由 Nginx 托管
