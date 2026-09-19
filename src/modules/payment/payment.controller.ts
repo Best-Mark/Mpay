@@ -1,10 +1,11 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Req, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { PaymentService } from './payment.service';
 import { CreateOrderDto, QueryOrderDto, CloseOrderDto } from './payment.dto';
 import { ApiSignGuard } from '../auth/api-sign.guard';
 import { assertParam } from '../../common/exceptions/biz.exception';
+import { ApiVersionInterceptor } from '../../common/interceptors/api-version.interceptor';
 
 /**
  * 开放接口（供各业务系统调用）
@@ -14,6 +15,7 @@ import { assertParam } from '../../common/exceptions/biz.exception';
 @ApiTags('开放接口-支付')
 @Controller('api/v1/open/pay')
 @UseGuards(ApiSignGuard)
+@UseInterceptors(ApiVersionInterceptor)
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 

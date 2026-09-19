@@ -20,6 +20,7 @@
     "db:studio": "prisma studio",
     "seed": "ts-node -r tsconfig-paths/register prisma/seed.ts",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
+    "compat:check": "ts-node --transpile-only -r tsconfig-paths/register scripts/openapi-compat-check.ts",
     "test": "jest"
   },
   "dependencies": {

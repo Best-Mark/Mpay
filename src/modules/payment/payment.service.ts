@@ -12,6 +12,7 @@ import { BizException, assertParam, assert } from '../../common/exceptions/biz.e
 import { ErrorCode } from '../../common/constants/error-codes';
 import { Channel, CHANNEL_AUTO, NotifyBizType, PayOrderStatus, TradeType } from '../../common/constants/enums';
 import { normalizePayInfo, PayInfo } from '../channel/channel.types';
+import { OpenApiOrderView } from './openapi-contract';
 import { CreateOrderDto, QueryOrderDto } from './payment.dto';
 
 /** 超过该分钟数仍处于非终态的订单，主动向渠道查单补偿（防止回调丢失） */
@@ -465,8 +466,11 @@ export class PaymentService {
 
   // ==================== 输出视图 ====================
 
-  /** preferredPayInfo：渠道适配器直接给出的统一形态（新渠道推荐提供） */
-  private buildOrderView(order: any, idempotentHit: boolean, preferredPayInfo?: PayInfo) {
+  /**
+   * preferredPayInfo：渠道适配器直接给出的统一形态（新渠道推荐提供）
+   * 返回类型标注为 OpenApiOrderView —— 少返回任何一个契约字段都会导致构建失败
+   */
+  private buildOrderView(order: any, idempotentHit: boolean, preferredPayInfo?: PayInfo): OpenApiOrderView {
     return {
       payOrderNo: order.payOrderNo,
       merchantOrderNo: order.merchantOrderNo,

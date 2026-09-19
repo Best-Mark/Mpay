@@ -72,6 +72,16 @@ switch (payInfo.type) {
 3. 下单返回的 `payParams` 由渠道决定，业务侧应按「有 `codeUrl` 就生成二维码、有 `prepayId`/`params` 就唤起 SDK」的方式兜底渲染，不要用穷举渠道的 if-else
 4. 未来确需破坏性变更时走 `/api/v2/...` 新路径，v1 继续可用
 
+### 版本协商与兼容保障
+
+- 所有开放接口响应都带 **`X-Api-Version: 1`**，业务系统 / SDK 可据此确认服务端契约版本
+- 契约在 `docs/openapi/v1-baseline.json` 有基线快照，平台侧每次发版前跑 `npm run compat:check`：
+  路径 / 响应字段 / `payInfo` 形态**只增不减**，形态映射不漂移，任一破坏都会让检查失败
+- 订单响应字段在代码里是强类型契约（`OpenApiOrderView`），**删字段会直接构建失败** —— 不是靠人自觉
+
+演进规则（平台侧自我约束）：新增能力 → 加可选字段 → 确认老 SDK 无感 → 更新基线；
+确需改语义 → 新增 `v2` 路径，v1 公告下线前继续可用。
+
 ## 统一约定
 
 - 接口全部为 `POST + JSON over HTTPS`，路径前缀 `/api/v1/open/...`

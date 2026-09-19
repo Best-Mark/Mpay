@@ -1,14 +1,16 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Req, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { RefundService } from './refund.service';
 import { CreateRefundDto, QueryRefundDto } from './refund.dto';
 import { ApiSignGuard } from '../auth/api-sign.guard';
 import { assertParam } from '../../common/exceptions/biz.exception';
+import { ApiVersionInterceptor } from '../../common/interceptors/api-version.interceptor';
 
 @ApiTags('开放接口-退款')
 @Controller('api/v1/open/refund')
 @UseGuards(ApiSignGuard)
+@UseInterceptors(ApiVersionInterceptor)
 export class RefundController {
   constructor(private readonly refundService: RefundService) {}
 

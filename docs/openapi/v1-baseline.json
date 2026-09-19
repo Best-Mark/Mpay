@@ -1,0 +1,40 @@
+{
+  "_comment": "开放接口 v1 契约基线快照：只允许新增，禁止删除/改名/改类型。改动前先跑 npm run compat:check，确认 diff 只有新增后再更新本文件。",
+  "apiVersion": 1,
+  "paths": [
+    "/api/v1/open/pay/create",
+    "/api/v1/open/pay/query",
+    "/api/v1/open/pay/close",
+    "/api/v1/open/pay/channels",
+    "/api/v1/open/refund/create",
+    "/api/v1/open/refund/query"
+  ],
+  "orderFields": [
+    "payOrderNo",
+    "merchantOrderNo",
+    "appId",
+    "channel",
+    "channelMchId",
+    "tradeType",
+    "amount",
+    "refundedAmount",
+    "paidAmount",
+    "subject",
+    "body",
+    "attach",
+    "status",
+    "channelTxnId",
+    "payerId",
+    "paidAt",
+    "expireAt",
+    "closedAt",
+    "notifyStatus",
+    "notifyCount",
+    "payParams",
+    "payInfo",
+    "createdAt",
+    "updatedAt",
+    "idempotentHit"
+  ],
+  "payInfoTypes": ["qrcode", "jsapi", "app", "redirect", "form", "none"]
+}

@@ -213,7 +213,8 @@
         下单结果除渠道原始的 <code>payParams</code> 外，还返回<strong>与渠道无关</strong>的 <code>payInfo</code>，业务侧按
         <code>type</code> 渲染即可：<code>qrcode</code> 出码、<code>jsapi</code>/<code>app</code> 用
         <code>params</code> 唤起、<code>redirect</code> 跳转 <code>url</code>、<code>form</code> 自动提交
-        <code>action+fields</code>、<code>none</code> 等待回调。遇到未知 <code>type</code> 请走轮询查单兜底，不要报错。
+        <code>action+fields</code>、<code>none</code> 等待回调。        遇到未知 <code>type</code> 请走轮询查单兜底，不要报错。所有开放接口响应均带 <code>X-Api-Version</code>，
+      平台发版前会通过契约基线校验（只增不减）确保<strong>已接入的 SDK 永不失效</strong>。
       </p>
       <div class="sdk-actions">
         <a
