@@ -17,7 +17,10 @@ export class AdminReconcileController {
 
   @Post('run')
   @ApiOperation({ summary: '手动触发对账（指定日期与渠道，缺失账单会自动补拉）' })
-  async run(@Req() req: Request, @Body() body: { billDate: string; channel?: string; appId?: string; mchId?: string; autoFetch?: boolean }) {
+  async run(
+    @Req() req: Request,
+    @Body() body: { billDate: string; channel?: string; appId?: string; mchId?: string; autoFetch?: boolean; forceFetch?: boolean },
+  ) {
     return this.reconcileService.run({
       billDate: body.billDate,
       channel: body.channel || 'ALL',
@@ -27,6 +30,7 @@ export class AdminReconcileController {
       triggeredBy: currentAdmin(req).username,
       triggerType: 'MANUAL',
       autoFetch: body.autoFetch,
+      forceFetch: body.forceFetch,
     });
   }
 

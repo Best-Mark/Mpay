@@ -4,6 +4,9 @@
   "description": "统一支付中心 - 收单/退款/通知/对账一体化平台",
   "private": true,
   "license": "UNSET",
+  "prisma": {
+    "seed": "ts-node --transpile-only prisma/seed.ts"
+  },
   "scripts": {
     "build": "nest build",
     "start": "nest start",

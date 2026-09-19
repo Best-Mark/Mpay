@@ -41,10 +41,11 @@ export class ApiSignGuard implements CanActivate {
       throw new BizException(ErrorCode.SIGN_MISSING, '缺少 X-App-Id / X-Timestamp / X-Nonce / X-Sign 请求头');
     }
 
-    // 1. 时间戳窗口（防重放 + 防时钟漂移）
+    // 1. 时间戳窗口（防重放 + 防时钟漂移；兼容秒/毫秒时间戳）
     const ts = Number(timestamp);
     if (!Number.isFinite(ts)) throw new BizException(ErrorCode.TIMESTAMP_INVALID);
-    if (Math.abs(Date.now() - ts) > TIME_WINDOW_MS) {
+    const tsMs = ts < 1e12 ? ts * 1000 : ts; // 秒级时间戳转毫秒
+    if (Math.abs(Date.now() - tsMs) > TIME_WINDOW_MS) {
       throw new BizException(ErrorCode.REQUEST_EXPIRED, '请求时间戳超出 5 分钟有效窗口');
     }
 

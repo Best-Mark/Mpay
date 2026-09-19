@@ -5,6 +5,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { ChannelService } from '../channel/channel.service';
 import { OperationLogService } from '../../common/log/operation-log.service';
 import { Money } from '../../common/utils/money';
+import { DateUtil } from '../../common/utils/date.util';
 import { BizException } from '../../common/exceptions/biz.exception';
 import { ErrorCode } from '../../common/constants/error-codes';
 import { Channel } from '../../common/constants/enums';
@@ -101,7 +102,7 @@ export class BillService {
     });
     const orderMap = new Map(orders.map((o) => [o.payOrderNo, o]));
 
-    const billDateObj = new Date(`${billDate}T00:00:00`);
+    const billDateObj = DateUtil.billDate(billDate); // DATE 列：UTC 午夜，落库即为该日
     let inserted = 0;
     let updated = 0;
 
@@ -133,27 +134,25 @@ export class BillService {
           raw: r.raw ?? undefined,
         };
 
-        // upsert：以 uk_bill_line 为唯一键，重复拉取只更新
-        const exist = await this.prisma.channelBill.findFirst({
-          where: {
-            billDate: billDateObj,
-            channel,
-            mchId,
-            tradeNo: r.tradeNo,
-            billType: r.billType || 'TRADE',
-          },
+        // upsert：以 uk_bill_line 为唯一键，重复拉取只更新（原子操作，避免并发下 create 撞唯一键）
+        const key = {
+          billDate: billDateObj,
+          channel,
+          mchId,
+          tradeNo: r.tradeNo,
+          billType: r.billType || 'TRADE',
+        };
+        const before = await this.prisma.channelBill.findUnique({
+          where: { uk_bill_line: key },
           select: { id: true },
         });
-        if (exist) {
-          await this.prisma.channelBill.update({
-            where: { id: exist.id },
-            data: { ...data, taskId: taskId ?? undefined },
-          });
-          updated++;
-        } else {
-          await this.prisma.channelBill.create({ data: { ...data, taskId: taskId ?? null } });
-          inserted++;
-        }
+        await this.prisma.channelBill.upsert({
+          where: { uk_bill_line: key },
+          create: { ...data, taskId: taskId ?? null },
+          update: { ...data, taskId: taskId ?? undefined },
+        });
+        if (before) updated++;
+        else inserted++;
       }
     }
 
@@ -172,7 +171,7 @@ export class BillService {
   /** 查询某日账单是否已拉取 */
   async hasBill(channel: string, billDate: string): Promise<number> {
     return this.prisma.channelBill.count({
-      where: { channel, billDate: new Date(`${billDate}T00:00:00`) },
+      where: { channel, billDate: DateUtil.billDate(billDate) },
     });
   }
 

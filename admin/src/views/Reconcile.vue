@@ -159,6 +159,10 @@
           <el-switch v-model="runForm.autoFetch" />
           <span style="margin-left: 8px; font-size: 12px; color: #8492a6">无账单时自动从渠道下载</span>
         </el-form-item>
+        <el-form-item label="强制重拉">
+          <el-switch v-model="runForm.forceFetch" />
+          <span style="margin-left: 8px; font-size: 12px; color: #8492a6">账单已存在也重新下载刷新</span>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="runVisible = false">取消</el-button>
@@ -313,7 +317,12 @@ const loadingDiffs = ref(false);
 
 const runVisible = ref(false);
 const running = ref(false);
-const runForm = reactive({ billDate: dayjs().subtract(1, 'day').format('YYYY-MM-DD'), channel: 'ALL', autoFetch: true });
+const runForm = reactive({
+  billDate: dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+  channel: 'ALL',
+  autoFetch: true,
+  forceFetch: false,
+});
 
 const reportVisible = ref(false);
 const report = ref(null);

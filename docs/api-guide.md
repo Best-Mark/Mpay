@@ -21,11 +21,11 @@
 | X-Nonce | 32 位以内随机串，5 分钟内不可重复（防重放） |
 | X-Sign | 签名 |
 
-签名算法：
+签名算法（method 与 path 参与签名，防止请求被重放到其它接口）：
 
 ```
-sign = Hex( HMAC_SHA256( key = AppSecret,
-                         msg = appId + timestamp + nonce + 原始请求体JSON ) )
+待签串 = [ appId, timestamp, nonce, METHOD(大写), path, sha256Hex(原始请求体) ].join('\n')
+sign   = HexLower( HMAC_SHA256( key = AppSecret, msg = 待签串 ) )
 ```
 
 示例（Node.js）：
@@ -33,20 +33,25 @@ sign = Hex( HMAC_SHA256( key = AppSecret,
 ```js
 const crypto = require('crypto');
 
-function signRequest(appId, appSecret, body) {
+/** @param path 请求路径，如 /api/v1/open/pay/create */
+function signRequest(appId, appSecret, method, path, body) {
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const nonce = crypto.randomBytes(12).toString('hex');
-  const sign = crypto
-    .createHmac('sha256', appSecret)
-    .update(appId + timestamp + nonce + JSON.stringify(body))
-    .digest('hex');
+  const bodyHash = crypto.createHash('sha256').update(body).digest('hex');
+  const content = [appId, timestamp, nonce, method.toUpperCase(), path, bodyHash].join('\n');
+  const sign = crypto.createHmac('sha256', appSecret).update(content).digest('hex').toLowerCase();
   return { 'X-App-Id': appId, 'X-Timestamp': timestamp, 'X-Nonce': nonce, 'X-Sign': sign };
 }
+
+// 调用：body 必须是「最终发送出去的原始字符串」
+const body = JSON.stringify({ appId, merchantOrderNo, amount: '12.34', /* ... */ });
+const headers = signRequest(appId, appSecret, 'POST', '/api/v1/open/pay/create', body);
 ```
 
 要点：
 - 参与签名的是**未经任何修改的原始请求体字符串**，不要先 parse 再 stringify。
-- 服务端按同样方式验签，失败返回 `40100 签名错误`、`40101 时间戳过期`、`40102 Nonce 重放`。
+- `path` 必须与实际请求路径完全一致（含 `/api/v1/open/...` 前缀）。
+- 服务端按同样方式验签，失败返回 `2004 签名错误`、`1006 请求已过期`、`2006 Nonce 重放`、`2007 IP 不在白名单`。
 
 ### 金额规范
 
@@ -55,7 +60,7 @@ function signRequest(appId, appSecret, body) {
 ## 3. 统一下单
 
 ```
-POST /api/v1/payment/create
+POST /api/v1/open/pay/create
 ```
 
 | 字段 | 必填 | 说明 |
@@ -97,8 +102,8 @@ POST /api/v1/payment/create
 ## 4. 查询 / 关单
 
 ```
-POST /api/v1/payment/query   { payOrderNo? , merchantOrderNo? }  二选一
-POST /api/v1/payment/close   { payOrderNo }
+POST /api/v1/open/pay/query   { payOrderNo? , merchantOrderNo? }  二选一
+POST /api/v1/open/pay/close   { payOrderNo }
 ```
 
 订单状态机：
@@ -113,7 +118,7 @@ CREATED → PAYING → SUCCESS → (REFUNDING → REFUNDED)
 ## 5. 退款
 
 ```
-POST /api/v1/refund/create
+POST /api/v1/open/refund/create
 {
   "payOrderNo": "P2026...",        // 与 merchantOrderNo 二选一
   "merchantRefundNo": "R2026...",  // 业务退款单号，幂等键
@@ -122,7 +127,7 @@ POST /api/v1/refund/create
   "notifyUrl": "https://..."       // 可选，覆盖默认
 }
 
-POST /api/v1/refund/query   { refundNo } 或 { merchantRefundNo }
+POST /api/v1/open/refund/query   { refundNo } 或 { merchantRefundNo }
 ```
 
 退款单状态：`CREATED → PROCESSING → SUCCESS / FAILED / ABNORMAL / CLOSED`
@@ -156,10 +161,22 @@ POST /api/v1/refund/query   { refundNo } 或 { merchantRefundNo }
 }
 ```
 
-**验签**（必须实现）：
+**验签**（必须实现）：签名放在通知头 `X-Pay-Sign`，待签串为
 
 ```
-sign = Hex( HMAC_SHA256( key = AppSecret, msg = appId + bizType + payOrderNo + amount + timestamp + nonce ) )
+待签串 = [ appId, X-Pay-Timestamp, X-Pay-Nonce, sha256Hex(原始通知体) ].join('\n')
+sign   = HexLower( HMAC_SHA256( key = AppSecret, msg = 待签串 ) )
+```
+
+```js
+const crypto = require('crypto');
+
+function verifyNotify(appSecret, headers, rawBody) {
+  const content = [headers['x-pay-app-id'], headers['x-pay-timestamp'], headers['x-pay-nonce'],
+    crypto.createHash('sha256').update(rawBody).digest('hex')].join('\n');
+  const expected = crypto.createHmac('sha256', appSecret).update(content).digest('hex').toLowerCase();
+  return expected === String(headers['x-pay-sign'] || '').toLowerCase();
+}
 ```
 
 **应答**：处理成功返回任意 2xx 且 body 为 `{"code":"SUCCESS"}`；否则视为失败进入重试。
@@ -171,12 +188,22 @@ sign = Hex( HMAC_SHA256( key = AppSecret, msg = appId + bizType + payOrderNo + a
 | code | 含义 |
 | --- | --- |
 | 0 | 成功 |
-| 1001/1002/1003 | 参数错误 / JSON 解析失败 / 缺少必要字段 |
-| 1004 | 请求过于频繁（限流） |
-| 2001/2002/2003/2004 | AppId 不存在 / 已停用 / IP 不在白名单 / 无渠道权限 |
-| 3001~3010 | 订单不存在 / 状态不符 / 重复支付 / 余额不足退款 / 金额超限 / 渠道下单失败 |
-| 40100~40102 | 签名错误 / 时间戳过期 / Nonce 重放 |
-| 5000/5001 | 系统异常 / 渠道异常（可重试） |
+| 1001 | 参数错误 |
+| 1002 | 系统繁忙（可重试） |
+| 1003 | 数据不存在 / 接口不存在 |
+| 1004 | 操作过于频繁（限流） |
+| 1005 | 禁止访问 |
+| 1006 | 请求已过期（时间戳超出 5 分钟窗口） |
+| 2001/2002 | AppId 不存在 / 已停用 |
+| 2003/2004 | 缺少签名参数 / 签名校验失败 |
+| 2005/2006 | 时间戳不合法 / Nonce 重放 |
+| 2007/2008 | IP 不在白名单 / 未开通此支付渠道 |
+| 3001~3009 | 订单不存在 / 状态不允许 / 已支付 / 已关闭 / 已过期 / 金额不合法 / 金额超限 / 幂等冲突 / 关单失败 |
+| 4001~4007 | 退款单不存在 / 金额不合法 / 超出可退 / 原单未支付 / 状态不允许 / 渠道退款失败 / 幂等冲突 |
+| 5001~5006 | 渠道配置不存在 / 已停用 / 配置不完整 / 请求失败 / 返回报文异常 / 渠道侧订单不存在 |
+| 6001~6006 | 对账执行中 / 批次不存在 / 未找到账单 / 账单解析失败 / 差异不存在 / 差异已处理 |
+
+响应统一结构：`{ code, message, data, traceId, timestamp }`，`code !== 0` 即失败；排查问题时请提供 `traceId`。
 
 ## 8. 联调自查清单
 

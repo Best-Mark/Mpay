@@ -469,7 +469,7 @@ model IdempotencyRecord {
 model AdminUser {
   id            BigInt    @id @default(autoincrement())
   username      String    @unique @db.VarChar(64)
-  passwordHash  String    @map("password_hash") @db.VarChar(128)
+  passwordHash  String    @map("password_hash") @db.VarChar(255)
   nickname      String?   @db.VarChar(64)
   /// 角色: SUPER(超管) / FINANCE(财务) / OPERATOR(运营) / VIEWER(只读)
   role          String    @default("OPERATOR") @db.VarChar(20)

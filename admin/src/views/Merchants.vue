@@ -1,60 +1,76 @@
 <template>
   <div class="pc-card">
     <div class="pc-toolbar">
-      <el-button type="primary" @click="openCreate">新增业务系统</el-button>
+      <el-input v-model="q.keyword" placeholder="搜索 AppId / 名称" clearable style="width: 220px" @keyup.enter="load" />
+      <el-button type="primary" @click="load">查询</el-button>
+      <el-button type="success" @click="openCreate">新增业务系统</el-button>
       <el-button @click="load">刷新</el-button>
     </div>
 
     <el-table :data="list" v-loading="loading" border size="small" stripe>
-      <el-table-column prop="appId" label="AppId" width="200" />
-      <el-table-column prop="appName" label="名称" min-width="140" />
-      <el-table-column prop="status" label="状态" width="90">
+      <el-table-column prop="appId" label="AppId" width="220" />
+      <el-table-column prop="name" label="名称" min-width="140" />
+      <el-table-column prop="enabled" label="状态" width="80">
         <template #default="{ row }">
-          <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ row.status }}</el-tag>
+          <el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? '启用' : '停用' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="contact" label="联系人" width="100" />
-      <el-table-column prop="notifyUrl" label="通知地址" min-width="200" show-overflow-tooltip />
+      <el-table-column prop="payNotifyUrl" label="支付通知地址" min-width="200" show-overflow-tooltip />
+      <el-table-column prop="limitPerOrder" label="单笔限额" width="100" align="right">
+        <template #default="{ row }">{{ Number(row.limitPerOrder) > 0 ? row.limitPerOrder : '不限' }}</template>
+      </el-table-column>
       <el-table-column prop="createdAt" label="创建时间" width="170">
         <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="230" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="warning" @click="resetSecret(row)">重置密钥</el-button>
-          <el-button link :type="row.status === 'ACTIVE' ? 'danger' : 'success'" @click="toggle(row)">
-            {{ row.status === 'ACTIVE' ? '停用' : '启用' }}
+          <el-button link :type="row.enabled ? 'danger' : 'success'" @click="toggle(row)">
+            {{ row.enabled ? '停用' : '启用' }}
           </el-button>
         </template>
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="editing ? '编辑业务系统' : '新增业务系统'" width="480px">
-      <el-form :model="form" label-width="100px">
-        <el-form-item label="名称">
-          <el-input v-model="form.appName" placeholder="如：商城 App" />
+    <div class="pc-pagination">
+      <el-pagination
+        v-model:current-page="page"
+        :page-size="pageSize"
+        :total="total"
+        layout="total, prev, pager, next"
+        @current-change="load"
+      />
+    </div>
+
+    <el-dialog v-model="dialogVisible" :title="editing ? '编辑业务系统' : '新增业务系统'" width="500px">
+      <el-form :model="form" label-width="110px">
+        <el-form-item label="名称" required>
+          <el-input v-model="form.name" placeholder="如：商城 App" />
         </el-form-item>
-        <el-form-item label="通知地址">
-          <el-input v-model="form.notifyUrl" placeholder="https://xxx/api/pay/notify" />
+        <el-form-item label="支付通知地址" required>
+          <el-input v-model="form.payNotifyUrl" placeholder="https://xxx/api/pay/notify" />
         </el-form-item>
-        <el-form-item label="联系人">
-          <el-input v-model="form.contact" />
+        <el-form-item label="退款通知地址">
+          <el-input v-model="form.refundNotifyUrl" placeholder="留空则使用支付通知地址" />
         </el-form-item>
-        <el-form-item label="联系电话">
-          <el-input v-model="form.contactPhone" />
+        <el-form-item label="IP 白名单">
+          <el-input v-model="form.ipWhitelist" placeholder="逗号分隔，留空不限制" />
         </el-form-item>
-        <template v-if="!editing">
-          <el-form-item label="IP 白名单">
-            <el-input v-model="form.ipWhitelist" placeholder="逗号分隔，留空不限制" />
-          </el-form-item>
-          <el-form-item label="允许渠道">
-            <el-select v-model="form.allowedChannels" multiple placeholder="留空=全部渠道" style="width: 100%">
-              <el-option label="微信" value="wechat" />
-              <el-option label="支付宝" value="alipay" />
-              <el-option label="模拟" value="mock" />
-            </el-select>
-          </el-form-item>
-        </template>
+        <el-form-item label="允许渠道">
+          <el-select v-model="form.allowChannels" multiple placeholder="留空=全部渠道" style="width: 100%">
+            <el-option label="微信" value="wechat" />
+            <el-option label="支付宝" value="alipay" />
+            <el-option label="模拟" value="mock" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="单笔限额(元)">
+          <el-input-number v-model="form.limitPerOrder" :min="0" :precision="2" style="width: 180px" />
+          <span style="margin-left: 8px; color: #8492a6; font-size: 12px">0 = 不限</span>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="form.remark" type="textarea" :rows="2" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -63,15 +79,17 @@
     </el-dialog>
 
     <!-- 密钥展示（仅返回一次） -->
-    <el-dialog v-model="secretVisible" title="AppSecret（仅显示一次，请立即保存）" width="460px" :close-on-click-modal="false">
+    <el-dialog v-model="secretVisible" title="AppSecret（仅显示一次，请立即保存）" width="480px" :close-on-click-modal="false">
       <el-alert type="warning" :closable="false" style="margin-bottom: 12px">
         密钥用于接口签名，泄露可被伪造支付请求。请妥善保管，关闭后无法再次查看。
       </el-alert>
-      <el-input :model-value="secretValue" readonly>
-        <template #append>
-          <el-button @click="copy(secretValue)">复制</el-button>
-        </template>
-      </el-input>
+      <el-descriptions :column="1" border size="small">
+        <el-descriptions-item label="AppId">{{ secretAppId }}</el-descriptions-item>
+        <el-descriptions-item label="AppSecret">{{ secretValue }}</el-descriptions-item>
+      </el-descriptions>
+      <div style="margin-top: 12px; text-align: right">
+        <el-button type="primary" size="small" @click="copy(secretAppId + '\n' + secretValue)">复制</el-button>
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -82,23 +100,37 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
 import dayjs from 'dayjs';
 
+const q = reactive({ keyword: '' });
 const list = ref([]);
+const total = ref(0);
+const page = ref(1);
+const pageSize = 20;
 const loading = ref(false);
 const saving = ref(false);
 const dialogVisible = ref(false);
 const editing = ref(null);
 const secretVisible = ref(false);
 const secretValue = ref('');
+const secretAppId = ref('');
 
-const form = reactive({ appName: '', notifyUrl: '', contact: '', contactPhone: '', ipWhitelist: '', allowedChannels: [] });
+const form = reactive({
+  name: '',
+  payNotifyUrl: '',
+  refundNotifyUrl: '',
+  ipWhitelist: '',
+  allowChannels: [],
+  limitPerOrder: 0,
+  remark: '',
+});
 
 const fmt = (v) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '-');
 
 async function load() {
   loading.value = true;
   try {
-    const res = await api.merchants();
-    list.value = res.list || res || [];
+    const res = await api.merchants({ keyword: q.keyword, page: page.value, pageSize });
+    list.value = res.list;
+    total.value = res.total;
   } catch (e) {
     ElMessage.error(e.message);
   } finally {
@@ -108,24 +140,27 @@ async function load() {
 
 function openCreate() {
   editing.value = null;
-  Object.assign(form, { appName: '', notifyUrl: '', contact: '', contactPhone: '', ipWhitelist: '', allowedChannels: [] });
+  Object.assign(form, { name: '', payNotifyUrl: '', refundNotifyUrl: '', ipWhitelist: '', allowChannels: [], limitPerOrder: 0, remark: '' });
   dialogVisible.value = true;
 }
 
 function openEdit(row) {
   editing.value = row;
   Object.assign(form, {
-    appName: row.appName,
-    notifyUrl: row.notifyUrl,
-    contact: row.contact,
-    contactPhone: row.contactPhone,
+    name: row.name,
+    payNotifyUrl: row.payNotifyUrl,
+    refundNotifyUrl: row.refundNotifyUrl || '',
+    ipWhitelist: row.ipWhitelist || '',
+    allowChannels: row.allowChannels || [],
+    limitPerOrder: Number(row.limitPerOrder) || 0,
+    remark: row.remark || '',
   });
   dialogVisible.value = true;
 }
 
 async function save() {
-  if (!form.appName) {
-    ElMessage.warning('请填写名称');
+  if (!form.name || !form.payNotifyUrl) {
+    ElMessage.warning('请填写名称与支付通知地址');
     return;
   }
   saving.value = true;
@@ -137,7 +172,8 @@ async function save() {
       const res = await api.createMerchant(form);
       ElMessage.success('创建成功');
       if (res.appSecret) {
-        secretValue.value = `${res.appId}\n${res.appSecret}`;
+        secretAppId.value = res.appId;
+        secretValue.value = res.appSecret;
         secretVisible.value = true;
       }
     }
@@ -154,6 +190,7 @@ async function resetSecret(row) {
   try {
     await ElMessageBox.confirm(`重置后旧密钥立即失效，确认重置 ${row.appId} 的密钥？`, '高危操作', { type: 'warning' });
     const res = await api.resetSecret(row.appId);
+    secretAppId.value = res.appId;
     secretValue.value = res.appSecret;
     secretVisible.value = true;
   } catch (e) {
@@ -163,7 +200,7 @@ async function resetSecret(row) {
 
 async function toggle(row) {
   try {
-    await api.updateMerchant(row.appId, { status: row.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' });
+    await api.updateMerchant(row.appId, { enabled: !row.enabled });
     ElMessage.success('已更新');
     load();
   } catch (e) {

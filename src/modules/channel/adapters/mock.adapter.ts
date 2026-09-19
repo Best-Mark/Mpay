@@ -12,6 +12,7 @@ import {
   RefundResult,
 } from '../channel.types';
 import { Channel } from '../../../common/constants/enums';
+import { DateUtil } from '../../../common/utils/date.util';
 
 interface MockRecord {
   payOrderNo: string;
@@ -42,7 +43,11 @@ export class MockAdapter implements ChannelAdapter {
   /** 人为注入的对账差异（用于演练）：outTradeNo -> 处理策略 */
   static readonly injectedDiffs = new Map<string, 'MISSING_IN_CHANNEL' | 'AMOUNT_DIFF' | 'EXTRA_IN_CHANNEL'>();
 
-  constructor(mchId = 'MOCK_MCH_001') {
+  /**
+   * @param mchId 渠道商户号
+   * @param prisma 可选：传入后账单可跨进程重启从支付中心订单补齐（仅用于本地演练）
+   */
+  constructor(mchId = 'MOCK_MCH_001', private readonly prisma?: any) {
     this.mchId = mchId;
   }
 
@@ -131,10 +136,12 @@ export class MockAdapter implements ChannelAdapter {
   async downloadBill(params: DownloadBillParams): Promise<BillRow[]> {
     const rows: BillRow[] = [];
     const targetDate = params.billDate.replace(/-/g, '');
+    const emitted = new Set<string>();
 
     for (const rec of MockAdapter.ledger.values()) {
       if (rec.status !== 'SUCCESS' && rec.status !== 'REFUNDED') continue;
-      const tradeDay = (rec.paidAt || new Date()).toISOString().slice(0, 10).replace(/-/g, '');
+      // 交易日按本地日期口径（与账单日一致），避免 toISOString 的 UTC 偏移导致跨零点错位
+      const tradeDay = DateUtil.localDay(rec.paidAt || new Date()).replace(/-/g, '');
       if (tradeDay !== targetDate) continue;
 
       const injected = MockAdapter.injectedDiffs.get(rec.payOrderNo);
@@ -143,11 +150,18 @@ export class MockAdapter implements ChannelAdapter {
       let amount = rec.amount;
       if (injected === 'AMOUNT_DIFF') amount = (Number(rec.amount) + 10).toFixed(2);
 
+      // 渠道侧已退金额（真实渠道账单交易行也带该列）
+      let refunded = 0;
+      for (const r of rec.refunds.values()) {
+        if (r.status === 'SUCCESS') refunded += Number(r.amount);
+      }
+
+      emitted.add(rec.payOrderNo);
       rows.push({
         tradeNo: rec.channelTxnId,
         outTradeNo: rec.payOrderNo,
         amount,
-        refundAmount: '0.00',
+        refundAmount: refunded.toFixed(2),
         tradeStatus: 'SUCCESS',
         rawStatus: 'SUCCESS',
         tradeTime: rec.paidAt || new Date(),
@@ -157,6 +171,9 @@ export class MockAdapter implements ChannelAdapter {
         billType: 'TRADE',
       });
     }
+
+    // 进程内账本会随服务重启丢失：从支付中心订单补齐当日交易，保证演练可重复对账
+    await this.appendPersistedOrders(params.billDate, emitted, rows);
 
     // 制造长款：渠道多出一笔支付中心没有的单
     for (const [outTradeNo, type] of MockAdapter.injectedDiffs.entries()) {
@@ -176,6 +193,69 @@ export class MockAdapter implements ChannelAdapter {
       });
     }
     return rows;
+  }
+
+  /**
+   * 账本补齐：渠道账本是进程内的，服务重启后会丢。
+   * 本地演练（mock）场景下，用支付中心当日已支付订单补出账单行，保证「渠道=中心」时能对平。
+   */
+  private async appendPersistedOrders(billDate: string, emitted: Set<string>, rows: BillRow[]): Promise<void> {
+    if (!this.prisma?.payOrder) return;
+    const { start, end } = DateUtil.localDayRange(billDate);
+    let orders: any[];
+    try {
+      orders = await this.prisma.payOrder.findMany({
+        where: {
+          channel: Channel.MOCK,
+          paidAt: { gte: start, lte: end },
+          status: { in: ['SUCCESS', 'REFUNDING', 'REFUNDED'] },
+        },
+        select: {
+          payOrderNo: true,
+          amount: true,
+          paidAmount: true,
+          paidAt: true,
+          channelTxnId: true,
+          refundedAmount: true,
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[MOCK] 账本补齐失败，仅使用进程内账本: ${e.message}`);
+      return;
+    }
+
+    const missing = orders.filter((o) => !emitted.has(o.payOrderNo));
+    if (!missing.length) return;
+
+    let refundSum = new Map<string, number>();
+    try {
+      const grouped = await this.prisma.refundOrder.groupBy({
+        by: ['payOrderNo'],
+        where: { status: 'SUCCESS', payOrderNo: { in: missing.map((o) => o.payOrderNo) } },
+        _sum: { refundAmount: true },
+      });
+      refundSum = new Map(grouped.map((g: any) => [g.payOrderNo, Number(g._sum?.refundAmount || 0)]));
+    } catch {
+      /* 忽略：无退款数据时不影响主流程 */
+    }
+
+    for (const o of missing) {
+      const amount = Number(o.paidAmount ?? o.amount ?? 0);
+      const refunded = o.refundedAmount != null ? Number(o.refundedAmount) : refundSum.get(o.payOrderNo) || 0;
+      rows.push({
+        tradeNo: o.channelTxnId || `MOCKTXN_${o.payOrderNo}`,
+        outTradeNo: o.payOrderNo,
+        amount: amount.toFixed(2),
+        refundAmount: refunded.toFixed(2),
+        tradeStatus: 'SUCCESS',
+        rawStatus: 'SUCCESS',
+        tradeTime: o.paidAt || new Date(`${billDate}T12:00:00`),
+        payerId: 'mock_openid_001',
+        subject: '模拟交易',
+        tradeType: 'MOCK',
+        billType: 'TRADE',
+      });
+    }
   }
 
   async parseNotify(params: { rawBody: string }): Promise<ParsedNotify> {

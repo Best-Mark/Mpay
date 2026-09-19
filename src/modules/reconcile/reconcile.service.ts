@@ -9,6 +9,7 @@ import { RedisService } from '../../common/redis/redis.service';
 import { BillService } from './bill.service';
 import { PaymentService } from '../payment/payment.service';
 import { Money } from '../../common/utils/money';
+import { DateUtil } from '../../common/utils/date.util';
 import { OrderNoUtil } from '../../common/utils/order-no';
 import { BizException } from '../../common/exceptions/biz.exception';
 import { ErrorCode } from '../../common/constants/error-codes';
@@ -135,6 +136,8 @@ export class ReconcileService implements OnModuleInit {
     triggerType?: 'AUTO_SCHEDULE' | 'MANUAL' | 'RETRY';
     /** 账单缺失时是否自动下载 */
     autoFetch?: boolean;
+    /** 强制重新拉取账单（账单已存在时也刷新，入库按唯一键 upsert，不会重复） */
+    forceFetch?: boolean;
   }): Promise<any> {
     const billDate = params.billDate;
     const channel = params.channel || 'ALL';
@@ -150,7 +153,7 @@ export class ReconcileService implements OnModuleInit {
       data: {
         taskNo,
         periodType: params.periodType || ReconcilePeriod.DAILY,
-        billDate: new Date(`${billDate}T00:00:00`),
+        billDate: DateUtil.billDate(billDate),
         startTime: params.startTime,
         endTime: params.endTime,
         channel,
@@ -168,8 +171,8 @@ export class ReconcileService implements OnModuleInit {
       const channels = channel === 'ALL' ? await this.billService.listActiveChannels() : [channel];
       for (const c of channels) {
         const count = await this.billService.hasBill(c, billDate);
-        if (count === 0 && (params.autoFetch ?? true)) {
-          this.logger.log(`[reconcile] ${c} ${billDate} 无账单，尝试自动下载`);
+        if ((count === 0 || params.forceFetch) && (params.autoFetch ?? true)) {
+          this.logger.log(`[reconcile] ${c} ${billDate} 账单 ${count} 行${params.forceFetch ? '（强制刷新）' : '，尝试自动下载'}`);
           await this.billService.fetchAndStore({
             channel: c,
             billDate,
@@ -180,15 +183,14 @@ export class ReconcileService implements OnModuleInit {
       }
 
       // 2. 载入渠道账单
-      const billWhere: any = { billDate: new Date(`${billDate}T00:00:00`), billType: 'TRADE' };
+      const billWhere: any = { billDate: DateUtil.billDate(billDate), billType: 'TRADE' };
       if (channel !== 'ALL') billWhere.channel = channel;
       if (params.mchId) billWhere.mchId = params.mchId;
       if (params.appId) billWhere.appId = params.appId;
       const bills = await this.prisma.channelBill.findMany({ where: billWhere });
 
       // 3. 载入支付中心订单（按支付成功时间落在对账日）
-      const dayStart = new Date(`${billDate}T00:00:00`);
-      const dayEnd = new Date(`${billDate}T23:59:59.999`);
+      const { start: dayStart, end: dayEnd } = DateUtil.localDayRange(billDate);
       const orderWhere: any = {
         paidAt: { gte: dayStart, lte: dayEnd },
         status: { in: [PayOrderStatus.SUCCESS, PayOrderStatus.REFUNDING, PayOrderStatus.REFUNDED] },
@@ -207,7 +209,7 @@ export class ReconcileService implements OnModuleInit {
             taskId: task.id,
             diffType: d.diffType,
             severity: d.severity,
-            billDate: new Date(`${billDate}T00:00:00`),
+            billDate: DateUtil.billDate(billDate),
             channel: channel === 'ALL' ? d.channel || 'ALL' : channel,
             appId: d.appId,
             payOrderNo: d.payOrderNo,
@@ -484,11 +486,11 @@ export class ReconcileService implements OnModuleInit {
     const page = Math.max(1, Number(params.page || 1));
     const pageSize = Math.min(200, Math.max(1, Number(params.pageSize || 20)));
     const where: any = {};
-    if (params.billDate) where.billDate = new Date(`${params.billDate}T00:00:00`);
+    if (params.billDate) where.billDate = DateUtil.billDate(params.billDate);
     if (params.startDate || params.endDate) {
       where.billDate = {};
-      if (params.startDate) where.billDate.gte = new Date(`${params.startDate}T00:00:00`);
-      if (params.endDate) where.billDate.lte = new Date(`${params.endDate}T23:59:59`);
+      if (params.startDate) where.billDate.gte = DateUtil.billDate(params.startDate);
+      if (params.endDate) where.billDate.lte = DateUtil.billDate(params.endDate);
     }
     if (params.channel) where.channel = params.channel;
     if (params.appId) where.appId = params.appId;
@@ -560,7 +562,7 @@ export class ReconcileService implements OnModuleInit {
     if (params.handleStatus) where.handleStatus = params.handleStatus;
     if (params.channel) where.channel = params.channel;
     if (params.appId) where.appId = params.appId;
-    if (params.billDate) where.billDate = new Date(`${params.billDate}T00:00:00`);
+    if (params.billDate) where.billDate = DateUtil.billDate(params.billDate);
     if (params.keyword) {
       where.OR = [
         { payOrderNo: { contains: params.keyword } },
@@ -654,7 +656,7 @@ export class ReconcileService implements OnModuleInit {
     await this.paymentService.markPaid(diff.payOrderNo, {
       channelTxnId: diff.channelTradeNo || undefined,
       paidAmount: diff.channelAmount || diff.centerAmount,
-      paidAt: new Date(`${diff.billDate.toISOString().slice(0, 10)}T12:00:00`),
+      paidAt: new Date(`${DateUtil.localDay(new Date(diff.billDate))}T12:00:00`),
     });
   }
 

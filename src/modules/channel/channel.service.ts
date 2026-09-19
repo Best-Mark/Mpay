@@ -33,7 +33,7 @@ export class ChannelService {
     const forceMock = (process.env.DEFAULT_CHANNEL_MODE || 'sandbox') === 'sandbox';
     if (forceMock && channel !== Channel.MOCK) {
       this.logger.debug(`sandbox 模式下渠道 ${channel} 由 Mock 适配器代理`);
-      return new MockAdapter();
+      return new MockAdapter('MOCK_MCH_001', this.prisma);
     }
 
     const cacheKey = `${channel}:${scene || ''}`;
@@ -47,7 +47,7 @@ export class ChannelService {
     if (!rows.length) throw new BizException(ErrorCode.CHANNEL_NOT_FOUND, `渠道 ${channel} 无可用配置`);
 
     const cfg = rows[0];
-    if (cfg.isSandbox) return new MockAdapter(cfg.mchId);
+    if (cfg.isSandbox) return new MockAdapter(cfg.mchId, this.prisma);
 
     const adapter = this.build(channel, cfg);
     this.cache.set(cacheKey, { adapter, expireAt: Date.now() + this.CACHE_TTL });
@@ -76,7 +76,7 @@ export class ChannelService {
           isSandbox: cfg.isSandbox,
         });
       case Channel.MOCK:
-        return new MockAdapter(cfg.mchId);
+        return new MockAdapter(cfg.mchId, this.prisma);
       default:
         throw new BizException(ErrorCode.CHANNEL_NOT_FOUND, `暂不支持的渠道: ${channel}`);
     }
