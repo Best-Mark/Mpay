@@ -260,6 +260,11 @@ img {
   gap: 12px;
 }
 
+/* 仅小屏显示的入口（大屏走 header__actions 按钮） */
+.only-mobile {
+  display: none;
+}
+
 .nav-toggle {
   display: none;
   background: none;
@@ -608,6 +613,9 @@ tbody tr:last-child td {
   }
   .header__actions .btn {
     display: none;
+  }
+  .only-mobile {
+    display: block;
   }
 }
 
