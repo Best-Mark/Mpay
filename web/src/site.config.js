@@ -19,13 +19,13 @@ export const site = {
     '面向企业经营的聚合支付中台：统一收单、统一退款、可靠异步通知、每日自动对账。业务系统只需对接一次，渠道密钥集中托管，零渠道知识也能上线收款。',
 
   /** 官网自身地址（用于 canonical / 分享，部署后填写完整地址） */
-  siteUrl: 'https://mpay.7zan.com',
-  /** 后台 / 接口地址（用于「立即接入」「接口文档」跳转） */
-  consoleUrl: 'https://mpay.7zan.com/#/login',
+  siteUrl: 'https://www.7zan.com',
+  /** 后台 / 接口地址（后台部署在同域 /admin/ 路径下） */
+  consoleUrl: 'https://www.7zan.com/admin/#/login',
   /** 商户自助入驻地址 */
-  registerUrl: 'https://mpay.7zan.com/#/register',
-  /** 接口文档地址（NestJS Swagger） */
-  docsUrl: 'https://mpay.7zan.com/docs',
+  registerUrl: 'https://www.7zan.com/admin/#/register',
+  /** 接口文档地址（NestJS Swagger，与官网 /#/docs 页面不冲突） */
+  docsUrl: 'https://www.7zan.com/docs',
 
   /** 公司主体信息（与营业执照保持一致） */
   company: {
@@ -58,7 +58,7 @@ export const site = {
     /** 商务合作邮箱 */
     businessEmail: 'bd@example.com',
     /** 商户入驻咨询入口地址（可指向后台注册页） */
-    merchantEntry: 'https://mpay.7zan.com/#/register',
+    merchantEntry: 'https://www.7zan.com/admin/#/register',
   },
 
   /** 支持的支付渠道（首页展示） */

@@ -3,6 +3,9 @@ import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
+  // 后台部署在主域的 /admin/ 路径下（官网占根路径），资源路径需带前缀。
+  // 开发态访问地址同步变为 http://localhost:5173/admin/
+  base: '/admin/',
   plugins: [vue()],
   resolve: {
     alias: {
