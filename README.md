@@ -27,12 +27,13 @@
 docker compose up -d mysql redis
 
 # 2. 配置环境变量
-cp .env.example .env       # 修改 DATABASE_URL / REDIS_URL / MASTER_KEY / JWT_SECRET
+cp .env.example .env       # 修改 DATABASE_URL / REDIS_* / MASTER_KEY / JWT_SECRET
 
 # 3. 安装 & 初始化
 npm install
-npx prisma migrate deploy  # 或 npx prisma db push（开发期）
-npm run seed
+npx prisma generate
+npx prisma migrate deploy  # 建表（库需先手动建：CREATE DATABASE pay_center）
+npm run seed               # 可选：渠道占位配置；超管账号启动时会自建
 
 # 4. 启动
 npm run start:dev          # 后端 http://localhost:3000，文档 /docs
@@ -92,30 +93,33 @@ prisma/               # 数据模型与种子数据
 ## 业务系统接入
 
 ```
-POST /api/v1/payment/create      统一下单
-POST /api/v1/payment/query       订单查询
-POST /api/v1/payment/close       关闭订单
-POST /api/v1/refund/create       申请退款
-POST /api/v1/refund/query        退款查询
-POST ← /api/v1/notify/*          支付中心 → 业务系统（支付/退款结果，签名可验）
+POST /api/v1/open/pay/create      统一下单
+POST /api/v1/open/pay/query       订单查询
+POST /api/v1/open/pay/close       关闭订单
+POST /api/v1/open/refund/create   申请退款
+POST /api/v1/open/refund/query    退款查询
+POST ← /api/v1/notify/:channel/pay|refund   渠道回调入口
+POST → 业务系统 notifyUrl         支付中心 → 业务系统（支付/退款结果，签名可验）
 ```
 
-签名规则（摘要，完整见 `docs/api-guide.md`）：
+签名规则（摘要，完整见 `docs/api-guide.md`，可直接复用 `docs/sdk-node.js`）：
 
 ```
-X-App-Id / X-Timestamp / X-Nonce / X-Sign
-sign = HMAC_SHA256(appSecret, appId + timestamp + nonce + body)
+待签串 = appId \n timestamp \n nonce \n METHOD \n path \n sha256Hex(原始请求体)
+X-Sign = HMAC_SHA256(appSecret, 待签串)  // hex 小写
 ```
 
 ## 部署
 
+完整步骤见 `docs/DEPLOY.md`（进程清单 / 建库建表 / Nginx / 定时任务 / 检查清单）。
+
 ```bash
 npm run build && npm run start:prod        # 后端（PM2 推荐）
-cd admin && npm run build                  # 前端产物 dist/ 由 Nginx 或后端托管
-npx prisma migrate deploy                  # 数据库迁移
+cd admin && npm run build                  # 前端产物 admin/dist 由 Nginx 托管
+npx prisma migrate deploy                  # 数据库迁移（空库自动建表）
 ```
 
-生产检查清单：修改 MASTER_KEY / JWT_SECRET / 默认管理员密码；DEFAULT_CHANNEL_MODE=prod 关闭 Mock；配置 HTTPS；核对账单 cron 与对账 cron。
+生产检查清单：修改 MASTER_KEY / JWT_SECRET / 默认管理员密码；DEFAULT_CHANNEL_MODE=prod 关闭 Mock；配置 HTTPS；REDIS_ENABLED=true（多实例）；核对账单 cron 与对账 cron。
 
 ## 数据保留
 
