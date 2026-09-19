@@ -179,9 +179,17 @@ function verifyNotify(appSecret, headers, rawBody) {
 }
 ```
 
-**应答**：处理成功返回任意 2xx 且 body 为 `{"code":"SUCCESS"}`；否则视为失败进入重试。
+**应答**：必须返回下面三类之一，否则视为失败进入重试：
 
-**重试策略**：`15s / 30s / 1m / 2m / 5m / 10m / 30m / 1h / 2h / 6h / 12h`，共 11 次；仍失败进入死信，后台可见并可人工重投。请保证通知处理的**幂等**（以 payOrderNo 去重）。
+```json
+{ "code": 0 }
+```
+
+（`{"success": true}` 或纯文本 `SUCCESS` 也可以，见 `notify.service.ts isSuccessResponse`）
+
+**重试策略**：默认最多 8 次，退避 `1s / 5s / 30s / 5min / 30min / 1h / 2h / 6h`
+（可用环境变量 `NOTIFY_BACKOFF` / `NOTIFY_MAX_RETRY` 覆盖）；仍失败进入死信，后台可见并可人工重投。
+请保证通知处理的**幂等**（以 `payOrderNo` 去重）。
 
 ## 7. 错误码
 
