@@ -178,6 +178,29 @@ model ChannelConfig {
 }
 
 // ============================================================
+// 3.1 个人收款码表（personal_qr 渠道用）
+// 说明：无商户号的用户上传自己的微信/支付宝收款码即可收款，
+// 到账由收款方在后台人工确认（渠道侧无回调能力）。
+// ============================================================
+model PersonalQrCode {
+  id        BigInt   @id @default(autoincrement())
+  /// 所属业务系统 AppId
+  appId     String   @map("app_id") @db.VarChar(32)
+  /// 码类型: wechat / alipay / other
+  type      String   @db.VarChar(16)
+  /// 收款账户备注（后台识别用，如「张三-微信」）
+  name      String   @db.VarChar(64)
+  /// 收款码图片地址（/uploads/2026/09/xxx.webp）
+  imageUrl  String   @map("image_url") @db.VarChar(255)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([appId, type], name: "idx_qr_app_type")
+  @@map("personal_qr_code")
+}
+
+// ============================================================
 // 4. 业务系统配置表（核心：AppId / 回调地址 / 密钥）
 // ============================================================
 model MerchantApp {

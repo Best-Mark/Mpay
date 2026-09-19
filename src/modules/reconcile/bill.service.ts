@@ -175,10 +175,10 @@ export class BillService {
     });
   }
 
-  /** 列出全部已配置的渠道（用于对账遍历） */
+  /** 列出全部已配置的渠道（用于对账遍历）：个人收款码无渠道账单，不参与自动对账 */
   async listActiveChannels(): Promise<string[]> {
     const rows = await this.prisma.channelConfig.findMany({
-      where: { enabled: true, channel: { not: Channel.MOCK } },
+      where: { enabled: true, channel: { notIn: [Channel.MOCK, Channel.PERSONAL_QR] } },
       select: { channel: true },
       distinct: ['channel'],
     });

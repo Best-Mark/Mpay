@@ -50,6 +50,14 @@ export const api = {
   orders: (params) => unwrap(http.get('/admin/orders', { params })),
   orderDetail: (payOrderNo) => unwrap(http.get(`/admin/orders/${payOrderNo}`)),
   closeOrder: (payOrderNo) => unwrap(http.post(`/admin/orders/${payOrderNo}/close`)),
+  /** 人工确认到账（个人收款码渠道） */
+  confirmPaid: (payOrderNo, data) => unwrap(http.post(`/admin/orders/${payOrderNo}/confirm-paid`, data || {})),
+
+  // ===== 个人收款码 =====
+  personalQr: (appId) => unwrap(http.get('/admin/personal-qr', { params: { appId } })),
+  createPersonalQr: (data) => unwrap(http.post('/admin/personal-qr', data)),
+  updatePersonalQr: (id, data) => unwrap(http.put(`/admin/personal-qr/${id}`, data)),
+  deletePersonalQr: (id) => unwrap(http.delete(`/admin/personal-qr/${id}`)),
 
   // ===== 退款 =====
   refunds: (params) => unwrap(http.get('/admin/refunds', { params })),

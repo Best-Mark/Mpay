@@ -160,6 +160,12 @@ npm run provision:app -- --apps scripts/apps.json --base https://pay.xxx.com --a
 npm run onboard:check -- --base https://pay.xxx.com --app-id app_xxx --app-secret sss
 ```
 
+### 个人收款码（没有商户号也能收款）
+
+渠道 `personal_qr`：上传自己的微信 / 支付宝收款二维码即可收款，业务系统拿到的**回调参数与正式渠道完全一致**。
+个人码没有渠道回调，因此多一个「收款方确认到账」环节（后台订单页一键确认，或 `POST /api/admin/orders/:payOrderNo/confirm-paid`）。
+不支持自动退款与自动对账，详见 **`docs/personal-qr.md`**。
+
 ## 部署
 
 完整步骤见 `docs/DEPLOY.md`（进程清单 / 建库建表 / Nginx / 定时任务 / 检查清单）。

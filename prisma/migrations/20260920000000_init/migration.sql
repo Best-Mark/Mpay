@@ -1,4 +1,4 @@
-﻿-- CreateTable
+-- CreateTable
 CREATE TABLE `pay_order` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `pay_order_no` VARCHAR(32) NOT NULL,

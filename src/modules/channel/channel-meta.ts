@@ -8,6 +8,8 @@ const SCENES: Record<string, string[]> = {
   [Channel.ALIPAY]: [TradeType.PC, TradeType.NATIVE, TradeType.APP, TradeType.MWEB, TradeType.FACE_TO_FACE],
   [Channel.UNIONPAY]: [TradeType.PC, TradeType.NATIVE, TradeType.MWEB, TradeType.APP],
   [Channel.MOCK]: Object.values(TradeType),
+  /** 个人收款码：展示二维码由付款人主动扫码付款，支付中心侧的「收银台页」承载 */
+  [Channel.PERSONAL_QR]: [TradeType.NATIVE, TradeType.JSAPI, TradeType.PC, TradeType.MWEB],
 };
 
 export interface SecretFieldDef {
@@ -106,6 +108,18 @@ export const CHANNEL_META: Record<string, ChannelMeta> = {
     available: true,
     scenes: SCENES[Channel.MOCK],
     mchId: { label: '模拟商户号', placeholder: '如 MOCK_MCH_001', hint: '仅用于沙箱联调' },
+    secrets: [],
+  },
+
+  [Channel.PERSONAL_QR]: {
+    label: '个人收款码',
+    available: true,
+    scenes: SCENES[Channel.PERSONAL_QR],
+    mchId: {
+      label: '收款账户备注',
+      placeholder: '如「张三-微信个人码」',
+      hint: '个人收款码无需商户号/密钥，此处仅作后台识别用',
+    },
     secrets: [],
   },
 

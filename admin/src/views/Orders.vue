@@ -55,9 +55,17 @@
       <el-table-column prop="createdAt" label="创建时间" width="170">
         <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="120" fixed="right">
+      <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="detail(row)">详情</el-button>
+          <el-button
+            v-if="row.channel === 'personal_qr' && row.status !== 'SUCCESS'"
+            link
+            type="success"
+            @click="confirmPaid(row)"
+          >
+            确认到账
+          </el-button>
           <el-button
             link
             type="danger"
@@ -157,6 +165,22 @@ function reset() {
 async function detail(row) {
   current.value = await api.orderDetail(row.payOrderNo);
   detailVisible.value = true;
+}
+
+async function confirmPaid(row) {
+  try {
+    await ElMessageBox.prompt(
+      `请在微信/支付宝账单中核对 ${row.amount} 元确实到账后再确认。可填付款账号/备注：`,
+      '确认到账',
+      { inputPlaceholder: '选填：付款账号尾号或备注', type: 'warning' },
+    ).then(async ({ value }) => {
+      await api.confirmPaid(row.payOrderNo, { remark: value || '' });
+      ElMessage.success('已确认到账并通知业务系统');
+      load();
+    });
+  } catch (e) {
+    if (e.message && e.message !== 'cancel') ElMessage.error(e.message);
+  }
 }
 
 async function closeOrder(row) {

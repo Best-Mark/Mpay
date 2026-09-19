@@ -7,6 +7,7 @@ import { ErrorCode } from '../../common/constants/error-codes';
 import { Channel, CHANNEL_AUTO } from '../../common/constants/enums';
 import { ChannelAdapter } from './channel.types';
 import { MockAdapter } from './adapters/mock.adapter';
+import { PersonalQrAdapter } from './adapters/personal-qr.adapter';
 import { WechatAdapter } from './adapters/wechat.adapter';
 import { AlipayAdapter } from './adapters/alipay.adapter';
 import { UnionPayAdapter } from './adapters/unionpay.adapter';
@@ -87,6 +88,11 @@ export class ChannelService {
    * 安全策略：DEFAULT_CHANNEL_MODE=sandbox 时强制使用 Mock，避免未配置密钥时误触真实资金
    */
   async getAdapter(channel: string, scene?: string): Promise<ChannelAdapter> {
+    // 个人收款码不涉及渠道密钥与资金 API，沙箱模式下也走真实适配器（便于联调展示与人工确认）
+    if (channel === Channel.PERSONAL_QR) {
+      return new PersonalQrAdapter('PERSONAL_QR', this.prisma);
+    }
+
     const forceMock = (process.env.DEFAULT_CHANNEL_MODE || 'sandbox') === 'sandbox';
     if (forceMock && channel !== Channel.MOCK) {
       this.logger.debug(`sandbox 模式下渠道 ${channel} 由 Mock 适配器代理`);
@@ -104,6 +110,7 @@ export class ChannelService {
     if (!rows.length) throw new BizException(ErrorCode.CHANNEL_NOT_FOUND, `渠道 ${channel} 无可用配置`);
 
     const cfg = rows[0];
+    if (channel === Channel.PERSONAL_QR) return new PersonalQrAdapter(cfg.mchId, this.prisma);
     if (cfg.isSandbox) return new MockAdapter(cfg.mchId, this.prisma);
 
     const adapter = this.build(channel, cfg);

@@ -15,6 +15,7 @@ import { MockModule } from './modules/mock/mock.module';
 import { MailModule } from './modules/mail/mail.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { UploadModule } from './modules/upload/upload.module';
+import { PersonalQrModule } from './modules/channel/personal-qr.module';
 import { AllExceptionFilter } from './common/filters/all-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
@@ -35,6 +36,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     MailModule,
     PortalModule,
     UploadModule,
+    PersonalQrModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionFilter },

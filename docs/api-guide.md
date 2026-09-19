@@ -70,7 +70,7 @@ POST /api/v1/open/pay/create
 | amount | 是 | 支付金额（元，字符串） |
 | subject | 是 | 商品标题（展示在收银台） |
 | description | 否 | 商品描述 |
-| channel | 否 | 指定渠道 wechat/alipay；不传由支付中心分配 |
+| channel | 否 | 指定渠道 wechat/alipay/personal_qr；不传由支付中心分配 |
 | tradeType | 否 | JSAPI / NATIVE / APP / MINI / PAGE，默认按渠道取默认值 |
 | openId | 否 | JSAPI/小程序支付必填 |
 | returnUrl | 否 | 支付完成后前端跳转地址 |
@@ -96,6 +96,7 @@ POST /api/v1/open/pay/create
 - wechat NATIVE：`{ codeUrl }`（生成二维码）
 - alipay PAGE：`{ payUrl }`（跳转或 form 提交）
 - mock：`{ payUrl }`（模拟收银台地址）
+- personal_qr：`{ payUrl, codes:[{type,name,imageUrl}], payRemark }`（个人收款码收银台，无商户号也能收款；到账需收款方后台确认，见 `docs/personal-qr.md`）
 
 **幂等**：同一 `merchantOrderNo + appId` 重复调用返回同一支付订单（含已支付订单）。
 

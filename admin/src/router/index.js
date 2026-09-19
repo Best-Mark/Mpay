@@ -18,6 +18,7 @@ const routes = [
       { path: 'reconcile', component: () => import('../views/Reconcile.vue'), meta: { title: '对账中心', icon: '🧮' } },
       { path: 'merchants', component: () => import('../views/Merchants.vue'), meta: { title: '业务系统', icon: '🏢' } },
       { path: 'channels', component: () => import('../views/Channels.vue'), meta: { title: '渠道配置', icon: '🔌' } },
+      { path: 'personal-qr', component: () => import('../views/PersonalQr.vue'), meta: { title: '个人收款码', icon: '💳' } },
       { path: 'notifies', component: () => import('../views/Notifies.vue'), meta: { title: '通知任务', icon: '📮' } },
       { path: 'logs', component: () => import('../views/Logs.vue'), meta: { title: '操作日志', icon: '📝' } },
       { path: 'merchant-users', component: () => import('../views/MerchantUsers.vue'), meta: { title: '商户入驻', icon: '🏬' } },
