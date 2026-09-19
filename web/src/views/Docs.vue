@@ -204,6 +204,11 @@
         各语言 SDK 均为<strong>单文件、零第三方依赖</strong>，下载后直接放进项目即可调用下单 / 查单 / 关单 /
         退款 / 通知验签。ZIP 包内含全部 5 个语言 SDK 与接入说明 README，解压即用。
       </p>
+      <p>
+        SDK 内<strong>不写死任何渠道</strong>：下单不传 <code>channel</code> 时由支付中心按应用已开通渠道与场景自动路由，
+        平台后续新增渠道（如京东支付、数字人民币）时<strong>无需升级 SDK</strong>；需要渲染收银台可调用渠道发现接口
+        <code>POST /api/v1/open/pay/channels</code> 动态获取。
+      </p>
       <div class="sdk-actions">
         <a
           v-for="s in sdks"

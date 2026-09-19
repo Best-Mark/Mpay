@@ -25,6 +25,9 @@ final class PayClient
     public const PATH_PAY_CREATE = '/api/v1/open/pay/create';
     public const PATH_PAY_QUERY = '/api/v1/open/pay/query';
     public const PATH_PAY_CLOSE = '/api/v1/open/pay/close';
+    public const PATH_PAY_CHANNELS = '/api/v1/open/pay/channels';
+    /** 渠道自动路由：不传 channel 时由支付中心自动选择，新增渠道无需升级 SDK */
+    public const CHANNEL_AUTO = 'auto';
     public const PATH_REFUND_CREATE = '/api/v1/open/refund/create';
     public const PATH_REFUND_QUERY = '/api/v1/open/refund/query';
 
@@ -44,7 +47,15 @@ final class PayClient
     /** 下单（幂等：同一 merchantOrderNo 返回同一订单） */
     public function createOrder(array $params): array
     {
+        // 未指定渠道时由服务端路由
+        $params += ['channel' => self::CHANNEL_AUTO];
         return $this->post(self::PATH_PAY_CREATE, $params);
+    }
+
+    /** 查询当前应用可用渠道，新增渠道会自动出现，无需升级 SDK */
+    public function listChannels(): array
+    {
+        return $this->post(self::PATH_PAY_CHANNELS, ['appId' => $this->appId]);
     }
 
     /** 查单：['payOrderNo' => ...] 或 ['merchantOrderNo' => ...] */

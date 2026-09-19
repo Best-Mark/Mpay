@@ -37,6 +37,9 @@ const (
 	PathPayCreate    = "/api/v1/open/pay/create"
 	PathPayQuery     = "/api/v1/open/pay/query"
 	PathPayClose     = "/api/v1/open/pay/close"
+	PathPayChannels  = "/api/v1/open/pay/channels"
+	// ChannelAuto 渠道自动路由：不传 channel 时由支付中心自动选择，新增渠道无需升级 SDK
+	ChannelAuto = "auto"
 	PathRefundCreate = "/api/v1/open/refund/create"
 	PathRefundQuery  = "/api/v1/open/refund/query"
 )
@@ -74,9 +77,21 @@ func (e *PayError) Error() string {
 
 // ==================== 开放接口 ====================
 
-// CreateOrder 下单（幂等：同一 merchantOrderNo 返回同一订单）
+// CreateOrder 下单（幂等：同一 merchantOrderNo 返回同一订单）；未指定 channel 时由服务端路由
 func (c *Client) CreateOrder(params map[string]any) (map[string]any, error) {
-	return c.post(PathPayCreate, params)
+	body := make(map[string]any, len(params)+1)
+	for k, v := range params {
+		body[k] = v
+	}
+	if _, ok := body["channel"]; !ok {
+		body["channel"] = ChannelAuto
+	}
+	return c.post(PathPayCreate, body)
+}
+
+// ListChannels 查询当前应用可用渠道，新增渠道会自动出现，无需升级 SDK
+func (c *Client) ListChannels() (map[string]any, error) {
+	return c.post(PathPayChannels, map[string]any{"appId": c.AppID})
 }
 
 // QueryOrder 查单：{"payOrderNo": ...} 或 {"merchantOrderNo": ...}

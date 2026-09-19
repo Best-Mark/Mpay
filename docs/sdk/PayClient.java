@@ -39,6 +39,9 @@ public final class PayClient {
     public static final String PATH_PAY_CREATE = "/api/v1/open/pay/create";
     public static final String PATH_PAY_QUERY = "/api/v1/open/pay/query";
     public static final String PATH_PAY_CLOSE = "/api/v1/open/pay/close";
+    public static final String PATH_PAY_CHANNELS = "/api/v1/open/pay/channels";
+    /** 渠道自动路由：不传 channel 时由支付中心自动选择，新增渠道无需升级 SDK */
+    public static final String CHANNEL_AUTO = "auto";
     public static final String PATH_REFUND_CREATE = "/api/v1/open/refund/create";
     public static final String PATH_REFUND_QUERY = "/api/v1/open/refund/query";
 
@@ -64,7 +67,16 @@ public final class PayClient {
 
     /** 下单（幂等：同一 merchantOrderNo 返回同一订单） */
     public Map<String, Object> createOrder(Map<String, Object> params) {
-        return post(PATH_PAY_CREATE, params);
+        Map<String, Object> body = new LinkedHashMap<>(params);
+        body.putIfAbsent("channel", CHANNEL_AUTO); // 未指定渠道时由服务端路由
+        return post(PATH_PAY_CREATE, body);
+    }
+
+    /** 查询当前应用可用渠道，新增渠道会自动出现，无需升级 SDK */
+    public Map<String, Object> listChannels() {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("appId", appId);
+        return post(PATH_PAY_CHANNELS, params);
     }
 
     /** 查单：{ payOrderNo } 或 { merchantOrderNo } */

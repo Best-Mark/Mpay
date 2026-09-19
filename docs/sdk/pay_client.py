@@ -41,6 +41,9 @@ class PayClient:
     PATH_PAY_CREATE = "/api/v1/open/pay/create"
     PATH_PAY_QUERY = "/api/v1/open/pay/query"
     PATH_PAY_CLOSE = "/api/v1/open/pay/close"
+    PATH_PAY_CHANNELS = "/api/v1/open/pay/channels"
+    # 渠道自动路由：不传 channel 时由支付中心自动选择，新增渠道无需升级 SDK
+    CHANNEL_AUTO = "auto"
     PATH_REFUND_CREATE = "/api/v1/open/refund/create"
     PATH_REFUND_QUERY = "/api/v1/open/refund/query"
 
@@ -53,8 +56,14 @@ class PayClient:
     # ==================== 开放接口 ====================
 
     def create_order(self, params: Mapping[str, Any]) -> Dict[str, Any]:
-        """下单（幂等：同一 merchantOrderNo 返回同一订单）"""
-        return self._post(self.PATH_PAY_CREATE, params)
+        """下单（幂等：同一 merchantOrderNo 返回同一订单）；未指定 channel 时由服务端路由"""
+        body: Dict[str, Any] = dict(params)
+        body.setdefault("channel", self.CHANNEL_AUTO)
+        return self._post(self.PATH_PAY_CREATE, body)
+
+    def list_channels(self) -> Dict[str, Any]:
+        """查询当前应用可用渠道，新增渠道会自动出现，无需升级 SDK"""
+        return self._post(self.PATH_PAY_CHANNELS, {"appId": self.app_id})
 
     def query_order(self, params: Mapping[str, Any]) -> Dict[str, Any]:
         """查单：{"payOrderNo": ...} 或 {"merchantOrderNo": ...}"""

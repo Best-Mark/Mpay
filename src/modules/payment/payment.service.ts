@@ -10,7 +10,7 @@ import { Money } from '../../common/utils/money';
 import { CryptoUtil } from '../../common/utils/crypto.util';
 import { BizException, assertParam, assert } from '../../common/exceptions/biz.exception';
 import { ErrorCode } from '../../common/constants/error-codes';
-import { Channel, NotifyBizType, PayOrderStatus, TradeType } from '../../common/constants/enums';
+import { Channel, CHANNEL_AUTO, NotifyBizType, PayOrderStatus, TradeType } from '../../common/constants/enums';
 import { CreateOrderDto, QueryOrderDto } from './payment.dto';
 
 /** 超过该分钟数仍处于非终态的订单，主动向渠道查单补偿（防止回调丢失） */
@@ -37,8 +37,12 @@ export class PaymentService {
     assertParam(Money.isValid(dto.amount), '订单金额不合法：必须为正数且最多两位小数');
     assertParam(!!dto.merchantOrderNo && !!dto.subject, 'merchantOrderNo 与 subject 必填');
 
-    const channel = dto.channel || Channel.WECHAT;
-    this.merchantService.assertChannelAllowed(app, channel);
+    // 渠道解析：auto / 不传时由服务端路由，业务系统与 SDK 不必感知具体渠道
+    const channel = await this.channelService.resolveChannel({
+      requested: dto.channel,
+      allowChannels: app.allowChannels,
+      scene: dto.tradeType,
+    });
 
     const amount = Money.round(dto.amount, 2);
     if (Money.D(app.limitPerOrder).gt(0) && amount.gt(Money.D(app.limitPerOrder))) {
@@ -136,6 +140,18 @@ export class PaymentService {
       }
       throw e;
     }
+  }
+
+  /**
+   * 查询应用可用渠道（开放接口）
+   * 业务系统可据此动态渲染收银台，不必把渠道列表写死在 SDK 里。
+   */
+  async listChannels(appId: string) {
+    const app = await this.merchantService.getSecret(appId);
+    return {
+      defaultChannel: CHANNEL_AUTO,
+      channels: this.channelService.listRoutableChannels(app.allowChannels),
+    };
   }
 
   private async payNotifyUrl(appId: string, channel: string): Promise<string> {

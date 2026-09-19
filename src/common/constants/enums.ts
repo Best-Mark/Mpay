@@ -19,6 +19,13 @@ export enum Channel {
   DOUYIN = 'douyin',
 }
 
+/**
+ * 渠道自动选择：业务系统不传 channel 或传 auto 时，由支付中心
+ * 按「商户已开通渠道 + 场景 + 渠道优先级」自动路由。
+ * 这是 SDK「一次接入、新增渠道不必升级」的关键：渠道决策在服务端。
+ */
+export const CHANNEL_AUTO = 'auto';
+
 /** 支付方式（交易类型） */
 export enum TradeType {
   /** 微信小程序 / 公众号内支付 */

@@ -25,6 +25,13 @@ export class PaymentController {
     return this.paymentService.createOrder(appId, dto, ip);
   }
 
+  @Post('channels')
+  @ApiOperation({ summary: '查询当前应用可用支付渠道（新增渠道后自动出现，无需升级 SDK）' })
+  async channels(@Req() req: Request) {
+    const appId = (req as any).merchantApp.appId as string;
+    return this.paymentService.listChannels(appId);
+  }
+
   @Post('query')
   @ApiOperation({ summary: '查询支付订单状态（支持 payOrderNo 或 merchantOrderNo）' })
   async query(@Req() req: Request, @Body() dto: QueryOrderDto) {

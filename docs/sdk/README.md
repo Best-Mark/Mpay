@@ -10,6 +10,36 @@
 | Python | `pay_client.py` | Python 3.8+ | 无（urllib） |
 | Go | `payclient.go` | Go 1.18+ | 无（net/http） |
 
+## 渠道无关：一次接入，新增渠道不必升级 SDK
+
+SDK 里**没有任何渠道枚举、没有渠道白名单校验**。渠道决策全在服务端：
+
+- 下单时**不传 `channel`**（或传 `auto`）→ 支付中心按「应用已开通渠道 ∩ 场景 ∩ 渠道优先级」自动路由
+- 想要指定渠道就传具体值（如 `channel: 'alipay'`），但**不推荐写死**
+- 平台新增渠道（京东支付、数字人民币……）时，服务端上线即可用，**SDK 与业务代码零改动**
+
+需要展示收银台时，用渠道发现接口动态拉取，不要把渠道列表写死在前端/配置里：
+
+```js
+const { channels } = await client.listChannels();
+// [{ channel: 'wechat', label: '微信支付', scenes: ['JSAPI','NATIVE',...] }, ...]
+```
+
+| 语言 | 方法 |
+| --- | --- |
+| Node.js | `client.listChannels()` |
+| Java | `client.listChannels()` |
+| PHP | `$client->listChannels()` |
+| Python | `client.list_channels()` |
+| Go | `client.ListChannels()` |
+
+**向前兼容约定**（平台侧承诺，SDK 因此在可预期范围内永不失效）：
+
+1. 路径 `/api/v1/open/...` 与响应包裹 `{ code, message, data, traceId }` 长期不变
+2. 只允许**新增可选字段**，不删除、不改变已有字段语义
+3. 下单返回的 `payParams` 由渠道决定，业务侧应按「有 `codeUrl` 就生成二维码、有 `prepayId`/`params` 就唤起 SDK」的方式兜底渲染，不要用穷举渠道的 if-else
+4. 未来确需破坏性变更时走 `/api/v2/...` 新路径，v1 继续可用
+
 ## 统一约定
 
 - 接口全部为 `POST + JSON over HTTPS`，路径前缀 `/api/v1/open/...`

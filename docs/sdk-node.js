@@ -17,9 +17,13 @@ const PATHS = {
   create: '/api/v1/open/pay/create',
   query: '/api/v1/open/pay/query',
   close: '/api/v1/open/pay/close',
+  channels: '/api/v1/open/pay/channels',
   refund: '/api/v1/open/refund/create',
   refundQuery: '/api/v1/open/refund/query',
 };
+
+/** 渠道自动路由：不传 channel 时由支付中心按商户已开通渠道 + 场景自动选择，新增渠道无需升级 SDK */
+const CHANNEL_AUTO = 'auto';
 
 /** 待签串：appId \n timestamp \n nonce \n METHOD \n path \n sha256(body) */
 function buildSignString({ appId, timestamp, nonce, method, path, body }) {
@@ -75,8 +79,10 @@ function createPayClient({ baseUrl, appId, appSecret, timeoutMs = 10000 }) {
   }
 
   return {
-    /** 下单（幂等：同一 merchantOrderNo 返回同一订单） */
-    createOrder: (params) => request(PATHS.create, { appId, ...params }),
+    /** 下单（幂等：同一 merchantOrderNo 返回同一订单）；channel 默认 auto，由服务端路由 */
+    createOrder: (params) => request(PATHS.create, { appId, channel: CHANNEL_AUTO, ...params }),
+    /** 查询当前应用可用渠道：[{ channel, label, scenes }]，新增渠道会自动出现 */
+    listChannels: () => request(PATHS.channels, { appId }),
     /** 查单：{ payOrderNo } 或 { merchantOrderNo } */
     queryOrder: (params) => request(PATHS.query, { appId, ...params }),
     /** 关闭未支付订单 */

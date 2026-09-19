@@ -1,5 +1,5 @@
 import { IsIn, IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, Max, MaxLength, Min } from 'class-validator';
-import { Channel, TradeType } from '../../common/constants/enums';
+import { Channel, CHANNEL_AUTO, TradeType } from '../../common/constants/enums';
 import { AVAILABLE_CHANNELS } from '../channel/channel-meta';
 
 export class CreateOrderDto {
@@ -13,9 +13,13 @@ export class CreateOrderDto {
   @IsPositive({ message: 'amount 必须为正数' })
   amount: number;
 
+  /**
+   * 支付渠道：不传或传 'auto' 时由支付中心按「应用已开通渠道 + 场景 + 优先级」自动路由。
+   * 建议业务系统不要写死具体渠道 —— 这样平台新增渠道时无需升级 SDK / 改代码。
+   */
   @IsOptional()
-  @IsIn(AVAILABLE_CHANNELS)
-  channel?: string = Channel.WECHAT;
+  @IsIn([...AVAILABLE_CHANNELS, CHANNEL_AUTO])
+  channel?: string = CHANNEL_AUTO;
 
   @IsOptional()
   @IsIn(Object.values(TradeType))
