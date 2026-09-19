@@ -1,0 +1,24 @@
+{
+  "_comment": "官网内容覆盖文件：修改本文件后刷新页面即生效，无需重新构建前端。删除本文件或置为 {} 则回退到 src/site.config.js 的默认值。以 _ 开头的键不会生效。",
+  "_example": {
+    "brand": "统一支付中心",
+    "slogan": "一次接入，收款 · 退款 · 对账全搞定",
+    "company": {
+      "name": "请填写公司全称（与营业执照一致）",
+      "shortName": "请填写公司简称",
+      "creditCode": "请填写统一社会信用代码",
+      "foundedAt": "20XX 年",
+      "address": "请填写公司经营地址",
+      "scope": "技术服务、技术开发、技术咨询；信息系统集成服务…"
+    },
+    "icp": "京ICP备XXXXXXXX号-1",
+    "policeRecord": "",
+    "telecomLicense": "",
+    "contact": {
+      "email": "support@example.com",
+      "phone": "400-000-0000",
+      "workTime": "工作日 09:00 - 18:00",
+      "businessEmail": "bd@example.com"
+    }
+  }
+}

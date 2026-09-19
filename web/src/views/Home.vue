@@ -104,6 +104,12 @@
           <p style="margin: 0; color: var(--text-2); font-size: 15px">{{ s.desc }}</p>
         </div>
       </div>
+      <div class="sdk-actions" style="justify-content: center">
+        <router-link class="btn btn--ghost" to="/docs">查看接入文档</router-link>
+        <a class="btn btn--primary" href="/sdk/pay-sdk-all.zip" download>
+          下载 SDK 套件（ZIP）
+        </a>
+      </div>
     </div>
   </section>
 

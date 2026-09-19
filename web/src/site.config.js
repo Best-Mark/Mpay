@@ -178,4 +178,41 @@ export const site = {
   legalUpdatedAt: '2026-09-20',
 };
 
+/**
+ * 官网文案的「运行时覆盖」入口
+ *
+ * 服务器上的 public/site.content.json 可以覆盖上面任意字段（公司主体、备案、联系方式、渠道、能力卡片……），
+ * 修改后刷新页面即生效，不需要重新 npm run build。文件不存在或格式错误时自动回退到本文件的默认值。
+ *
+ * 运维方式：直接编辑 dist 目录里的 site.content.json；
+ * 后续如需后台可视化编辑，只要让后台生成同一个 JSON 即可，前端无需改动。
+ */
+const CONTENT_URL = `${import.meta.env.BASE_URL}site.content.json`;
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function mergeContent(target, patch) {
+  for (const [key, value] of Object.entries(patch)) {
+    if (key.startsWith('_')) continue; // _comment / _example 等说明字段不生效
+    if (isPlainObject(value) && isPlainObject(target[key])) mergeContent(target[key], value);
+    else target[key] = value;
+  }
+  return target;
+}
+
+/** 加载并合并 site.content.json（失败静默，使用内置默认值） */
+export async function applySiteContent() {
+  try {
+    const res = await fetch(CONTENT_URL, { cache: 'no-store' });
+    if (!res.ok) return site;
+    const patch = await res.json();
+    if (isPlainObject(patch)) mergeContent(site, patch);
+  } catch {
+    /* 未配置或解析失败：使用默认值 */
+  }
+  return site;
+}
+
 export default site;

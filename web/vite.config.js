@@ -3,6 +3,10 @@ import vue from '@vitejs/plugin-vue';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
+import { buildSdkZip } from './scripts/make-sdk-zip.mjs';
+
+const SDK_ZIP_NAME = 'pay-sdk-all.zip';
+const SDK_FILE_EXT = ['.js', '.java', '.php', '.py', '.go', '.md'];
 
 /**
  * 构建时把仓库根 docs/sdk-node.js 同步到 public/sdk/，
@@ -25,6 +29,12 @@ function syncOpenSdk() {
           if (fs.statSync(from).isFile()) fs.copyFileSync(from, path.join(destDir, file));
         }
       }
+      // 再打成一个 zip，方便一次性下载全部语言 SDK
+      const entries = fs
+        .readdirSync(destDir)
+        .filter((f) => SDK_FILE_EXT.includes(path.extname(f)))
+        .map((f) => ({ name: `pay-sdk/${f}`, data: fs.readFileSync(path.join(destDir, f)) }));
+      if (entries.length) buildSdkZip(entries, path.join(destDir, SDK_ZIP_NAME));
     },
   };
 }

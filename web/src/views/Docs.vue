@@ -202,7 +202,7 @@
       <h2>6. SDK 下载（多语言）</h2>
       <p>
         各语言 SDK 均为<strong>单文件、零第三方依赖</strong>，下载后直接放进项目即可调用下单 / 查单 / 关单 /
-        退款 / 通知验签。
+        退款 / 通知验签。ZIP 包内含全部 5 个语言 SDK 与接入说明 README，解压即用。
       </p>
       <div class="sdk-actions">
         <a
@@ -346,11 +346,12 @@ import { site } from '../site.config';
 const apiBase = computed(() => site.docsUrl.replace(/\/docs\/?$/, ''));
 
 const sdks = [
-  { label: '下载 Node.js SDK', file: 'pay-sdk-node.js', primary: true },
-  { label: '下载 Java SDK', file: 'PayClient.java' },
-  { label: '下载 PHP SDK', file: 'PayClient.php' },
-  { label: '下载 Python SDK', file: 'pay_client.py' },
-  { label: '下载 Go SDK', file: 'payclient.go' },
+  { label: '一键下载全部 SDK（ZIP）', file: 'pay-sdk-all.zip', primary: true },
+  { label: 'Node.js 单文件', file: 'pay-sdk-node.js' },
+  { label: 'Java 单文件', file: 'PayClient.java' },
+  { label: 'PHP 单文件', file: 'PayClient.php' },
+  { label: 'Python 单文件', file: 'pay_client.py' },
+  { label: 'Go 单文件', file: 'payclient.go' },
   { label: '接入说明 README', file: 'README.md' },
 ];
 
