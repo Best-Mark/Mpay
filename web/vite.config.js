@@ -9,14 +9,22 @@ import { fileURLToPath, URL } from 'node:url';
  * 供官网「接入文档」页提供 SDK 下载。单一来源，无需手工复制维护。
  */
 function syncOpenSdk() {
-  const src = fileURLToPath(new URL('../docs/sdk-node.js', import.meta.url));
+  const nodeSdk = fileURLToPath(new URL('../docs/sdk-node.js', import.meta.url));
+  const sdkDir = fileURLToPath(new URL('../docs/sdk', import.meta.url));
   const destDir = fileURLToPath(new URL('./public/sdk', import.meta.url));
   return {
     name: 'sync-open-sdk',
     buildStart() {
-      if (!fs.existsSync(src)) return;
       fs.mkdirSync(destDir, { recursive: true });
-      fs.copyFileSync(src, path.join(destDir, 'pay-sdk-node.js'));
+      if (fs.existsSync(nodeSdk)) {
+        fs.copyFileSync(nodeSdk, path.join(destDir, 'pay-sdk-node.js'));
+      }
+      if (fs.existsSync(sdkDir)) {
+        for (const file of fs.readdirSync(sdkDir)) {
+          const from = path.join(sdkDir, file);
+          if (fs.statSync(from).isFile()) fs.copyFileSync(from, path.join(destDir, file));
+        }
+      }
     },
   };
 }

@@ -199,14 +199,63 @@
 通知请求头：X-Pay-App-Id / X-Pay-Timestamp / X-Pay-Nonce / X-Pay-Sign / X-Pay-Trace-Id</pre>
       <p>业务处理完成后返回 <code>{"code":0}</code>；返回非 0 或超时均会触发重试。</p>
 
-      <h2>6. SDK 下载</h2>
+      <h2>6. SDK 下载（多语言）</h2>
       <p>
-        Node.js 项目可直接下载单文件 SDK（零依赖，含下单 / 查单 / 关单 / 退款 / 通知验签），其它语言按上面
-        的签名示例自行封装即可（仅 20 行代码）。
+        各语言 SDK 均为<strong>单文件、零第三方依赖</strong>，下载后直接放进项目即可调用下单 / 查单 / 关单 /
+        退款 / 通知验签。
       </p>
       <div class="sdk-actions">
-        <a class="btn btn--primary" :href="sdkUrl" download>下载 Node.js SDK</a>
-        <a class="btn btn--ghost" :href="site.docsUrl" target="_blank" rel="noopener">Swagger 接口文档</a>
+        <a
+          v-for="s in sdks"
+          :key="s.file"
+          class="btn"
+          :class="s.primary ? 'btn--primary' : 'btn--ghost'"
+          :href="'/sdk/' + s.file"
+          download
+        >
+          {{ s.label }}
+        </a>
+        <a class="btn btn--ghost" :href="site.docsUrl" target="_blank" rel="noopener">
+          Swagger 接口文档
+        </a>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>语言</th>
+              <th>文件</th>
+              <th>环境要求</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Node.js</td>
+              <td><code>pay-sdk-node.js</code></td>
+              <td>Node 18+（自带 fetch），无依赖</td>
+            </tr>
+            <tr>
+              <td>Java</td>
+              <td><code>PayClient.java</code></td>
+              <td>JDK 11+，无依赖（HttpClient + 内置 JSON）</td>
+            </tr>
+            <tr>
+              <td>PHP</td>
+              <td><code>PayClient.php</code></td>
+              <td>PHP 7.4+，仅需 curl 扩展</td>
+            </tr>
+            <tr>
+              <td>Python</td>
+              <td><code>pay_client.py</code></td>
+              <td>Python 3.8+，无依赖（urllib）</td>
+            </tr>
+            <tr>
+              <td>Go</td>
+              <td><code>payclient.go</code></td>
+              <td>Go 1.18+，无依赖（net/http）</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
       <pre class="code">const { createPayClient } = require('./pay-sdk-node.js');
 
@@ -295,7 +344,15 @@ import { computed, ref } from 'vue';
 import { site } from '../site.config';
 
 const apiBase = computed(() => site.docsUrl.replace(/\/docs\/?$/, ''));
-const sdkUrl = '/sdk/pay-sdk-node.js';
+
+const sdks = [
+  { label: '下载 Node.js SDK', file: 'pay-sdk-node.js', primary: true },
+  { label: '下载 Java SDK', file: 'PayClient.java' },
+  { label: '下载 PHP SDK', file: 'PayClient.php' },
+  { label: '下载 Python SDK', file: 'pay_client.py' },
+  { label: '下载 Go SDK', file: 'payclient.go' },
+  { label: '接入说明 README', file: 'README.md' },
+];
 
 const langs = [
   { key: 'node', label: 'Node.js' },
