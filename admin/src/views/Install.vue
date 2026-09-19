@@ -155,6 +155,9 @@
               <div>应用迁移：{{ result.appliedMigrations.length }} 个</div>
               <div>管理员：{{ form.admin.username }} / {{ form.admin.password }}</div>
               <div class="warn">请妥善保存管理员密码，安装完成后建议立即登录修改</div>
+              <div class="next">
+                下一步：登录后到「系统设置 → 邮件服务」配置 SMTP，用于商户注册验证码与系统告警邮件（注册默认关闭，需手动开启）。
+              </div>
             </template>
           </el-result>
           <el-alert
@@ -398,6 +401,11 @@ onMounted(loadStatus);
 .warn {
   margin-top: 6px;
   color: #e6a23c;
+}
+
+.next {
+  margin-top: 6px;
+  color: #606266;
 }
 
 .row {

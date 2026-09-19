@@ -7,6 +7,8 @@ import { NotifyBizType, NotifyStatus } from '../../common/constants/enums';
 import { CryptoUtil } from '../../common/utils/crypto.util';
 import { signNotify, NOTIFY_SIGN_HEADER } from '../auth/signature.util';
 import { OperationLogService } from '../../common/log/operation-log.service';
+import { SystemConfigService } from '../../common/config/system-config.service';
+import { MailService } from '../mail/mail.service';
 
 /** 默认重试退避阶梯（秒）：1s,5s,30s,5min,30min,1h,2h,6h */
 const DEFAULT_BACKOFF = [1, 5, 30, 300, 1800, 3600, 7200, 21600];
@@ -30,6 +32,8 @@ export class NotifyService {
     private readonly prisma: PrismaService,
     private readonly merchantService: MerchantService,
     private readonly opLog: OperationLogService,
+    private readonly cfg: SystemConfigService,
+    private readonly mail: MailService,
   ) {}
 
   private get backoff(): number[] {
@@ -204,6 +208,24 @@ export class NotifyService {
         detail: `通知失败 ${max} 次进入死信，需人工重投：${task?.notifyUrl}`,
         result: 'FAILED',
       });
+
+      // 死信告警邮件：业务方收不到支付结果是要人工介入的，不能只躺在日志里
+      if (await this.cfg.getBool('alert.notifyDeadLetter', true)) {
+        this.mail.alert(
+          `[支付中心告警] 通知进入死信 ${task?.bizNo || ''}`,
+          [
+            `业务类型：${task?.bizType}`,
+            `业务单号：${task?.bizNo}`,
+            `AppId：${task?.appId}`,
+            `通知地址：${task?.notifyUrl}`,
+            `已重试：${max} 次`,
+            `最后错误：${error || response || '未知'}`,
+            '',
+            '请登录管理后台「通知任务」人工重投。',
+          ].join('\n'),
+          `notify-dead-${task?.bizNo}`,
+        ).catch(() => undefined);
+      }
     }
   }
 

@@ -13,6 +13,8 @@ import { DateUtil } from '../../common/utils/date.util';
 import { OrderNoUtil } from '../../common/utils/order-no';
 import { BizException } from '../../common/exceptions/biz.exception';
 import { ErrorCode } from '../../common/constants/error-codes';
+import { SystemConfigService } from '../../common/config/system-config.service';
+import { MailService } from '../mail/mail.service';
 import {
   Channel,
   DiffType,
@@ -64,6 +66,8 @@ export class ReconcileService implements OnModuleInit {
     private readonly opLog: OperationLogService,
     private readonly redis: RedisService,
     private readonly scheduler: SchedulerRegistry,
+    private readonly cfg: SystemConfigService,
+    private readonly mail: MailService,
   ) {}
 
   /** 运行时注册定时任务，cron 表达式可由环境变量覆盖（装饰器无法读取运行时 env） */
@@ -254,12 +258,29 @@ export class ReconcileService implements OnModuleInit {
         detail: `对账 ${billDate} ${channel}：渠道 ${result.channelCount} 笔 / 中心 ${result.centerCount} 笔，平账 ${result.matchedCount} 笔，差异 ${result.diffs.length} 笔`,
       });
 
-      // 7. 差异超阈值告警
-      const threshold = Number(process.env.RECONCILE_DIFF_ALERT_THRESHOLD || 10);
+      // 7. 差异超阈值告警：阈值走系统配置（后台可调，不必重启）
+      const threshold = await this.cfg.getDiffThreshold();
       if (result.diffs.length >= threshold) {
         this.logger.error(
           `[reconcile-alert] ${billDate} ${channel} 差异 ${result.diffs.length} 笔（阈值 ${threshold}），差异金额 ${Money.format(result.diffAmount)} 元，需人工介入`,
         );
+        if (await this.cfg.getBool('alert.reconcileDiff', true)) {
+          this.mail.alert(
+            `[支付中心告警] 对账差异 ${result.diffs.length} 笔 ${billDate} ${channel}`,
+            [
+              `对账批次：${taskNo}`,
+              `账单日期：${billDate}`,
+              `渠道：${channel}`,
+              `渠道笔数：${result.channelCount}`,
+              `中心笔数：${result.centerCount}`,
+              `差异笔数：${result.diffs.length}（阈值 ${threshold}）`,
+              `差异金额：${Money.format(result.diffAmount)} 元`,
+              '',
+              '请登录管理后台「对账中心」处理差异。',
+            ].join('\n'),
+            `reconcile-diff-${billDate}-${channel}-${taskNo}`,
+          ).catch(() => undefined);
+        }
       }
 
       return this.toReportView(finished);

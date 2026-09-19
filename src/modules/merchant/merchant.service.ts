@@ -17,6 +17,8 @@ export interface MerchantAppView {
   limitPerOrder: string;
   enabled: boolean;
   remark?: string;
+  /** 归属商户账号 ID（自助注册开通时有值） */
+  userId?: number;
   createdAt: Date;
 }
 
@@ -131,6 +133,8 @@ export class MerchantService {
     remark?: string;
     operator: string;
     ip?: string;
+    /** 归属商户账号（自助注册审核通过时绑定） */
+    userId?: bigint;
   }) {
     // 生成 AppId / AppSecret：各 16 位随机
     const appId = `app_${CryptoUtil.randomString(16)}`;
@@ -147,6 +151,7 @@ export class MerchantService {
         allowChannels: input.allowChannels ?? undefined,
         limitPerOrder: input.limitPerOrder ?? 0,
         remark: input.remark,
+        userId: input.userId,
       },
     });
 
@@ -239,6 +244,7 @@ export class MerchantService {
       limitPerOrder: row.limitPerOrder.toString(),
       enabled: row.enabled,
       remark: row.remark || undefined,
+      userId: row.userId ? Number(row.userId) : undefined,
       createdAt: row.createdAt,
     };
   }

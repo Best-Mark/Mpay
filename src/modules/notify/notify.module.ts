@@ -5,6 +5,7 @@ import { MerchantModule } from '../merchant/merchant.module';
 import { ChannelModule } from '../channel/channel.module';
 import { PaymentModule } from '../payment/payment.module';
 import { RefundModule } from '../refund/refund.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { RefundModule } from '../refund/refund.module';
     ChannelModule,
     forwardRef(() => PaymentModule),
     forwardRef(() => RefundModule),
+    MailModule,
   ],
   providers: [NotifyService],
   controllers: [NotifyController],

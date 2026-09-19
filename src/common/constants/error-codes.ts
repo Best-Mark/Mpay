@@ -65,6 +65,20 @@ export const ErrorCode = {
   RECONCILE_BILL_PARSE_FAILED: 6004,
   RECONCILE_DIFF_NOT_FOUND: 6005,
   RECONCILE_DIFF_HANDLED: 6006,
+
+  // ===== 7xxx 系统配置 / 邮件 / 商户账号 / 上传 =====
+  CONFIG_NOT_FOUND: 7001,
+  MAIL_NOT_CONFIGURED: 7002,
+  MAIL_SEND_FAILED: 7003,
+  VERIFY_CODE_INVALID: 7004,
+  VERIFY_CODE_EXPIRED: 7005,
+  MERCHANT_USER_EXISTS: 7006,
+  MERCHANT_USER_NOT_FOUND: 7007,
+  MERCHANT_STATUS_INVALID: 7008,
+  REGISTER_DISABLED: 7009,
+  UPLOAD_TYPE_NOT_ALLOWED: 7010,
+  UPLOAD_TOO_LARGE: 7011,
+  UPLOAD_PROCESS_FAILED: 7012,
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -123,4 +137,17 @@ export const ErrorMessage: Record<number, string> = {
   [ErrorCode.RECONCILE_BILL_PARSE_FAILED]: '账单解析失败',
   [ErrorCode.RECONCILE_DIFF_NOT_FOUND]: '差异记录不存在',
   [ErrorCode.RECONCILE_DIFF_HANDLED]: '该差异已处理，不可重复操作',
+
+  [ErrorCode.CONFIG_NOT_FOUND]: '配置项不存在',
+  [ErrorCode.MAIL_NOT_CONFIGURED]: '邮件服务未配置，请先在「系统设置 → 邮件」完成 SMTP 配置',
+  [ErrorCode.MAIL_SEND_FAILED]: '邮件发送失败',
+  [ErrorCode.VERIFY_CODE_INVALID]: '验证码不正确',
+  [ErrorCode.VERIFY_CODE_EXPIRED]: '验证码已过期，请重新获取',
+  [ErrorCode.MERCHANT_USER_EXISTS]: '该邮箱已注册',
+  [ErrorCode.MERCHANT_USER_NOT_FOUND]: '商户账号不存在',
+  [ErrorCode.MERCHANT_STATUS_INVALID]: '商户账号状态不允许该操作',
+  [ErrorCode.REGISTER_DISABLED]: '尚未开放自助注册',
+  [ErrorCode.UPLOAD_TYPE_NOT_ALLOWED]: '不支持的文件类型',
+  [ErrorCode.UPLOAD_TOO_LARGE]: '文件过大',
+  [ErrorCode.UPLOAD_PROCESS_FAILED]: '图片处理失败',
 };

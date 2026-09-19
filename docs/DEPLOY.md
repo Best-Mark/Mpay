@@ -138,6 +138,12 @@ server {
   index index.html;
   location / { try_files $uri $uri/ /index.html; }
 
+  # 上传的图片（后端托管的静态目录，必须代理到后端；否则会被下面 location / 兜住返回 index.html）
+  location /uploads/ {
+    proxy_pass http://127.0.0.1:3000;
+    expires 7d;
+  }
+
   # 后端 API（含开放接口与渠道回调）
   location /api/ {
     proxy_pass http://127.0.0.1:3000;
@@ -151,6 +157,8 @@ server {
 
 要点：
 - 后端信任 `X-Forwarded-For` 做 IP 白名单，反向代理必须透传真实 IP。
+- `/uploads/**` 由后端直接托管（`UPLOAD_DIR` 目录），**不是前端产物**，必须单独代理，否则图片会 404 并被 SPA 兜底成 `index.html`。
+- 管理后台是 hash 路由（`#/settings`），公开页 `#/register`（商户入驻）与 `#/portal`（商户后台）同样无需额外 Nginx 配置。
 - 渠道回调地址由 `PAY_BASE_URL` 拼接（如 `https://pay.example.com/api/v1/notify/wechat/pay`），必须与微信/支付宝后台配置一致。
 - 微信证书放 `certs/wechat/`，支付宝密钥放 `certs/alipay/`（路径由 env 指定），不要进 Git。
 
@@ -166,7 +174,51 @@ node scripts/smoke-test.mjs                        # 全链路冒烟（登录/�
 node scripts/smoke-test.mjs https://pay.example.com
 ```
 
-## 6. 生产检查清单
+## 7. 版本升级与换机器
+
+### A. 已有服务器升级
+
+```bash
+git pull
+npm ci                 # 新增依赖（nodemailer / sharp / multer）在这一步装上
+npx prisma generate    # 必须：重新生成 Prisma Client（含新增表类型）
+npm run build
+
+cd admin && npm ci && npm run build && cd ..   # 后台是静态站点，前端改了必须重新 build
+
+pm2 restart pay-center                          # 增量迁移在启动时自动应用
+pm2 logs pay-center --lines 50                  # 见到 applied: ["2026xxxx_xxx"] 即迁移成功
+```
+
+要点：
+
+- 迁移无需手工执行：启动日志出现 `applied: [...]` 表示新表/新列已建好，`skipped` 表示之前已应用过。
+- `npm ci` 会按 `package-lock.json` 装依赖，**sharp 需要对应平台的预编译包**；服务器访问 npm 官方源慢时先切镜像再装：
+  ```bash
+  npm config set registry https://registry.npmmirror.com
+  ```
+- 只部署 `dist/` 的极简形态记得**同时拷贝 `prisma/migrations`**，否则结构自愈读不到迁移 SQL。
+
+### B. 换新服务器（全新部署）
+
+1. 环境与代码：`node -v` ≥ 20 → `git clone` → `npm ci` → `npx prisma generate` → `npm run build`
+2. 启动：`pm2 start dist/src/main.js --name pay-center -i 1 && pm2 save && pm2 startup`
+3. 打开后台 → 自动进入**安装向导**（环境检测 → 数据库 → 站点与管理员 → 完成），装完自动重启并进入登录；不需要手工建库建表。
+4. 构建托管管理后台：`cd admin && npm ci && npm run build`，`admin/dist` 交给 Nginx（含 `/uploads/` 代理，见第 4 节）。
+5. 上线后配置顺序（这次新增能力的开关都在后台，不在 `.env`）：
+   - 「系统设置 → 邮件服务」填 SMTP 并用「发送测试邮件」验证 → 「告警」填写收件人与阈值
+   - 「系统设置 → 商户注册」确认是否对外开放（**默认关闭**，确认要开放再开）
+   - 「系统设置 → 站点信息」填名称/Logo/备案号/联系邮箱（会展示在商户入驻页）
+
+### C. 需要持久化的目录
+
+| 目录 | 内容 | 说明 |
+| --- | --- | --- |
+| `storage/uploads/` | 上传图片（压缩转 WebP 后的产物） | 丢了只是图片 404，可重建 |
+| `storage/bills/` | 渠道对账账单文件 | 丢了需重新拉账 |
+| `certs/` | 微信/支付宝密钥证书 | 不进 Git，必须单独备份 |
+
+## 8. 生产检查清单
 
 - [ ] `MASTER_KEY`、`JWT_SECRET`、`NOTIFY_SIGN_SALT` 已换成随机值（换来后旧加密数据不可解，须在空库阶段换）
 - [ ] 默认管理员密码已改

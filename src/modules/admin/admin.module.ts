@@ -5,6 +5,10 @@ import { AdminOrderController } from './admin-order.controller';
 import { AdminConfigController } from './admin-config.controller';
 import { AdminReconcileController } from './admin-reconcile.controller';
 import { AdminSystemController } from './admin-system.controller';
+import { AdminSettingsController } from './admin-settings.controller';
+import { AdminPortalController } from './admin-portal.controller';
+import { MailModule } from '../mail/mail.module';
+import { PortalModule } from '../portal/portal.module';
 import { MerchantModule } from '../merchant/merchant.module';
 import { ChannelModule } from '../channel/channel.module';
 import { PaymentModule } from '../payment/payment.module';
@@ -20,6 +24,8 @@ import { ReconcileModule } from '../reconcile/reconcile.module';
     RefundModule,
     NotifyModule,
     ReconcileModule,
+    MailModule,
+    PortalModule,
   ],
   providers: [AdminAuthService],
   controllers: [
@@ -28,6 +34,8 @@ import { ReconcileModule } from '../reconcile/reconcile.module';
     AdminConfigController,
     AdminReconcileController,
     AdminSystemController,
+    AdminSettingsController,
+    AdminPortalController,
   ],
   exports: [AdminAuthService],
 })

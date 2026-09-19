@@ -202,9 +202,14 @@ model MerchantApp {
   limitPerOrder    Decimal  @default(0.00) @map("limit_per_order") @db.Decimal(18, 2)
   enabled          Boolean  @default(true)
   remark           String?  @db.VarChar(256)
+  /// 归属商户账号（自助注册审核通过后绑定；后台手工创建则为空）
+  userId           BigInt?  @map("user_id")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
+  user MerchantUser? @relation(fields: [userId], references: [id])
+
+  @@index([userId], name: "idx_user")
   @@map("merchant_app")
 }
 
@@ -507,4 +512,102 @@ model ChannelNotifyLog {
   @@index([payOrderNo], name: "idx_pay_order_no")
   @@index([createdAt], name: "idx_created")
   @@map("channel_notify_log")
+}
+
+// ============================================================
+// 支撑表 E：系统运行时配置（后台可改，改完即生效，无需重启）
+// 设计要点：只有「改了必须重启」的项（数据库/Redis/端口/主密钥）留在 .env，
+//           其余一律落库，避免线上为了改一个 SMTP 端口去重启收单进程
+// ============================================================
+model SystemConfig {
+  id        BigInt   @id @default(autoincrement())
+  /// 分组: mail / register / alert / site
+  group     String   @db.VarChar(32)
+  /// 配置键（全局唯一，形如 mail.host）
+  key       String   @unique @db.VarChar(64)
+  value     String?  @db.Text
+  /// 是否为敏感项（SMTP 密码等）：落库 AES 加密，读取接口只回显是否已设置
+  secret    Boolean  @default(false)
+  remark    String?  @db.VarChar(128)
+  updatedBy String?  @map("updated_by") @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([group], name: "idx_group")
+  @@map("system_config")
+}
+
+// ============================================================
+// 支撑表 F：商户账号（自助注册入驻，后台审核后开通业务系统）
+// ============================================================
+model MerchantUser {
+  id            BigInt    @id @default(autoincrement())
+  /// 登录邮箱（唯一）
+  email         String    @unique @db.VarChar(128)
+  passwordHash  String    @map("password_hash") @db.VarChar(255)
+  /// 公司/主体名称
+  companyName   String    @map("company_name") @db.VarChar(128)
+  contactName   String?   @map("contact_name") @db.VarChar(64)
+  contactPhone  String?   @map("contact_phone") @db.VarChar(32)
+  website       String?   @db.VarChar(255)
+  /// 注册时填写的支付结果通知地址（审核开通业务系统时带入）
+  payNotifyUrl  String?   @map("pay_notify_url") @db.VarChar(256)
+  /// 状态: PENDING 待审核 / ACTIVE 已通过 / REJECTED 已驳回 / DISABLED 已停用
+  status        String    @default("PENDING") @db.VarChar(20)
+  /// 驳回原因（审核不通过时填写，会通过邮件告知）
+  rejectReason  String?   @map("reject_reason") @db.VarChar(255)
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  reviewedAt    DateTime? @map("reviewed_at")
+  reviewer      String?   @db.VarChar(64)
+  lastLoginAt   DateTime? @map("last_login_at")
+  lastLoginIp   String?   @map("last_login_ip") @db.VarChar(64)
+  remark        String?   @db.VarChar(255)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  apps MerchantApp[]
+
+  @@index([status, createdAt], name: "idx_status_created")
+  @@map("merchant_user")
+}
+
+// ============================================================
+// 支撑表 G：邮箱验证码（注册 / 找回密码）
+// ============================================================
+model EmailVerifyCode {
+  id        BigInt   @id @default(autoincrement())
+  email     String   @db.VarChar(128)
+  /// 场景: REGISTER / RESET_PASSWORD
+  scene     String   @default("REGISTER") @db.VarChar(20)
+  code      String   @db.VarChar(8)
+  /// 请求 IP，用于频控与审计
+  ip        String?  @db.VarChar(64)
+  used      Boolean  @default(false)
+  expireAt  DateTime @map("expire_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email, scene, createdAt], name: "idx_email_scene")
+  @@map("email_verify_code")
+}
+
+// ============================================================
+// 支撑表 H：上传文件（图片压缩转换后的产物记录，便于管理与清理）
+// ============================================================
+model UploadFile {
+  id           BigInt   @id @default(autoincrement())
+  /// 用途: logo / avatar / image
+  scene        String   @default("image") @db.VarChar(20)
+  originalName String   @map("original_name") @db.VarChar(255)
+  /// 站点相对访问路径，如 /uploads/2026/09/xxx.webp
+  url          String   @db.VarChar(255)
+  mime         String   @db.VarChar(64)
+  /// 处理后字节数
+  size         Int
+  width        Int?
+  height       Int?
+  uploadedBy   String?  @map("uploaded_by") @db.VarChar(64)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([scene, createdAt], name: "idx_scene_created")
+  @@map("upload_file")
 }

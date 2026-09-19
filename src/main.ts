@@ -4,6 +4,8 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { AppModule } from './app.module';
 import { PrismaService } from './common/prisma/prisma.service';
 import { AdminAuthService } from './modules/admin/admin-auth.service';
@@ -92,6 +94,11 @@ async function bootstrap() {
     req.traceId = traceId;
     TraceContext.run({ traceId }, () => next());
   });
+
+  // ===== 上传文件静态服务（/uploads/2026/09/xxx.webp）=====
+  const uploadDir = path.resolve(process.cwd(), process.env.UPLOAD_DIR || './storage/uploads');
+  fs.mkdirSync(uploadDir, { recursive: true });
+  app.use('/uploads', require('express').static(uploadDir, { maxAge: '7d', index: false }));
 
   // ===== 限流（防刷 / 防重放补充）=====
   if ((process.env.RATE_LIMIT_ENABLED ?? 'true') !== 'false') {

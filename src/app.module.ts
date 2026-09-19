@@ -12,6 +12,9 @@ import { ReconcileModule } from './modules/reconcile/reconcile.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { InstallModule } from './modules/install/install.module';
 import { MockModule } from './modules/mock/mock.module';
+import { MailModule } from './modules/mail/mail.module';
+import { PortalModule } from './modules/portal/portal.module';
+import { UploadModule } from './modules/upload/upload.module';
 import { AllExceptionFilter } from './common/filters/all-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
@@ -29,6 +32,9 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     AdminModule,
     InstallModule,
     MockModule,
+    MailModule,
+    PortalModule,
+    UploadModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionFilter },

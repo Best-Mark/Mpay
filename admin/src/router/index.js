@@ -5,6 +5,8 @@ import { api } from '../api';
 const routes = [
   { path: '/install', component: () => import('../views/Install.vue'), meta: { public: true } },
   { path: '/login', component: () => import('../views/Login.vue'), meta: { public: true } },
+  { path: '/register', component: () => import('../views/Register.vue'), meta: { public: true } },
+  { path: '/portal', component: () => import('../views/Portal.vue'), meta: { public: true } },
   {
     path: '/',
     component: () => import('../layouts/AdminLayout.vue'),
@@ -18,6 +20,8 @@ const routes = [
       { path: 'channels', component: () => import('../views/Channels.vue'), meta: { title: '渠道配置', icon: '🔌' } },
       { path: 'notifies', component: () => import('../views/Notifies.vue'), meta: { title: '通知任务', icon: '📮' } },
       { path: 'logs', component: () => import('../views/Logs.vue'), meta: { title: '操作日志', icon: '📝' } },
+      { path: 'merchant-users', component: () => import('../views/MerchantUsers.vue'), meta: { title: '商户入驻', icon: '🏬' } },
+      { path: 'settings', component: () => import('../views/Settings.vue'), meta: { title: '系统设置', icon: '⚙️' } },
     ],
   },
 ];
