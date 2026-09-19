@@ -318,6 +318,10 @@ export function buildPayNotifyPayload(p: {
   attach?: string;
 }): NotifyPayload {
   return {
+    /** 通知大类：PAY / REFUND（与请求头 X-Pay-Biz-Type 一致） */
+    bizType: NotifyBizType.PAY,
+    /** 细分事件：PAYMENT_SUCCESS（新增字段，老业务按 status 判断不受影响） */
+    event: `PAYMENT_${p.status}`,
     appId: p.appId,
     payOrderNo: p.payOrderNo,
     merchantOrderNo: p.merchantOrderNo,
@@ -347,6 +351,10 @@ export function buildRefundNotifyPayload(p: {
   attach?: string;
 }): NotifyPayload {
   return {
+    /** 通知大类：PAY / REFUND（与请求头 X-Pay-Biz-Type 一致） */
+    bizType: NotifyBizType.REFUND,
+    /** 细分事件：REFUND_SUCCESS / REFUND_FAILED */
+    event: p.status === 'SUCCESS' ? 'REFUND_SUCCESS' : 'REFUND_FAILED',
     appId: p.appId,
     refundNo: p.refundNo,
     merchantRefundNo: p.merchantRefundNo,

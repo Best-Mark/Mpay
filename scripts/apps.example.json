@@ -1,0 +1,49 @@
+{
+  "_doc": "复制为 scripts/apps.json 后填写真实信息再执行；payNotifyUrl 必填且必须是公网 HTTPS 地址。allowChannels 不填=允许全部渠道；limitPerOrder 单位元，0=不限。",
+  "apps": [
+    {
+      "key": "mshop-prod",
+      "name": "Mshop分销商城-生产",
+      "lang": "node",
+      "payNotifyUrl": "https://s.7zan.com/api/pay/notify",
+      "refundNotifyUrl": "https://s.7zan.com/api/pay/refund-notify",
+      "ipWhitelist": "",
+      "allowChannels": ["wechat", "alipay"],
+      "limitPerOrder": 0,
+      "remark": "分销商城 + 影响力之树"
+    },
+    {
+      "key": "mshop-test",
+      "name": "Mshop分销商城-测试",
+      "lang": "node",
+      "payNotifyUrl": "https://test.7zan.com/api/pay/notify",
+      "refundNotifyUrl": "",
+      "ipWhitelist": "",
+      "allowChannels": ["mock"],
+      "limitPerOrder": 0,
+      "remark": "联调/回归，仅 mock 渠道，不出真钱"
+    },
+    {
+      "key": "moneysite-prod",
+      "name": "MoneySite工具站-生产",
+      "lang": "node",
+      "payNotifyUrl": "https://tools.7zan.com/api/pay/notify",
+      "refundNotifyUrl": "",
+      "ipWhitelist": "",
+      "allowChannels": ["wechat", "alipay"],
+      "limitPerOrder": 0,
+      "remark": ""
+    },
+    {
+      "key": "ripro-prod",
+      "name": "七赞云主题站-生产",
+      "lang": "php",
+      "payNotifyUrl": "https://7zan.com/wp-json/pay/v1/notify",
+      "refundNotifyUrl": "",
+      "ipWhitelist": "",
+      "allowChannels": ["wechat", "alipay"],
+      "limitPerOrder": 0,
+      "remark": "ripro-v5 主题"
+    }
+  ]
+}

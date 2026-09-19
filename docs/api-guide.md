@@ -139,11 +139,17 @@ POST /api/v1/open/refund/query   { refundNo } 或 { merchantRefundNo }
 
 ## 6. 异步通知（支付中心 → 业务系统）
 
-支付成功、退款完成时，支付中心 POST JSON 到配置的通知地址：
+支付成功、退款完成时，支付中心 POST JSON 到配置的通知地址。区分通知类型有两种方式，任选其一：
+
+- 请求头 `X-Pay-Biz-Type`：`PAY` / `REFUND`
+- 报文内 `bizType`（同上）+ `event`（`PAYMENT_SUCCESS` / `REFUND_SUCCESS` / `REFUND_FAILED`）+ `status`
+
+报文示例：
 
 ```json
 {
-  "bizType": "PAYMENT_SUCCESS",        // 或 REFUND_SUCCESS / REFUND_FAILED
+  "bizType": "PAY",                    // 大类：PAY / REFUND（与请求头 X-Pay-Biz-Type 一致）
+  "event": "PAYMENT_SUCCESS",          // 细分：PAYMENT_SUCCESS / REFUND_SUCCESS / REFUND_FAILED
   "payOrderNo": "P2026...",
   "merchantOrderNo": "B2026...",
   "appId": "app_xxx",

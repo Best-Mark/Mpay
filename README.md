@@ -148,6 +148,18 @@ POST → 业务系统 notifyUrl         支付中心 → 业务系统（支付/�
 X-Sign = HMAC_SHA256(appSecret, 待签串)  // hex 小写
 ```
 
+### 多项目统一接入
+
+公司内每个项目按「项目 × 环境」开通一套 AppId，统一规范见 **`docs/sdk/INTEGRATION.md`**（命名、六条铁律、通知模板、验收清单）。配套两个脚本：
+
+```bash
+# 批量为各项目开通业务系统并输出「项目—AppId—密钥」对照表
+npm run provision:app -- --apps scripts/apps.json --base https://pay.xxx.com --admin admin --password '***'
+
+# 项目接入自检：下单 → 支付 → 通知验签 → 幂等 → 退款 → 关单
+npm run onboard:check -- --base https://pay.xxx.com --app-id app_xxx --app-secret sss
+```
+
 ## 部署
 
 完整步骤见 `docs/DEPLOY.md`（进程清单 / 建库建表 / Nginx / 定时任务 / 检查清单）。
