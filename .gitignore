@@ -15,3 +15,5 @@ web/public/sdk/
 .vscode/
 tmp/
 *.pem
+__pycache__/
+*.pyc
