@@ -25,8 +25,10 @@ export interface SecretFieldDef {
 
 export interface ChannelMeta {
   label: string;
-  /** 是否已实现下单（未实现的渠道可展示但不可保存配置） */
+  /** 是否已实现下单适配器（false = 仅登记展示，保存配置时拒绝） */
   available: boolean;
+  /** 未接入原因 / 接入前提（前端与接口报错都会展示） */
+  reason?: string;
   scenes: string[];
   mchId?: { label: string; pattern?: RegExp; placeholder?: string; hint?: string };
   appId?: { label: string; pattern?: RegExp; placeholder?: string; hint?: string };
@@ -106,10 +108,55 @@ export const CHANNEL_META: Record<string, ChannelMeta> = {
     mchId: { label: '模拟商户号', placeholder: '如 MOCK_MCH_001', hint: '仅用于沙箱联调' },
     secrets: [],
   },
+
+  // ==================== 已登记、尚未接入（available=false：可展示，保存时明确拒绝）====================
+
+  [Channel.JD]: {
+    label: '京东支付',
+    available: false,
+    reason: '京东科技开放平台有对外网关（一次对接京东 / 微信 / 支付宝钱包），需先拿到商户号与接口文档再实现适配器',
+    scenes: [],
+    mchId: { label: '商户号', placeholder: '京东科技分配的商户号', hint: '需京东支付开放平台开通' },
+    secrets: [],
+  },
+  [Channel.QQ]: {
+    label: 'QQ 钱包',
+    available: false,
+    reason: '财付通生态内渠道，需腾讯侧开通，当前市场份额小，按需接入',
+    scenes: [],
+    mchId: { label: '商户号', placeholder: '财付通商户号' },
+    secrets: [],
+  },
+  [Channel.DIGITAL_RMB]: {
+    label: '数字人民币',
+    available: false,
+    reason: '需经运营机构（工行 / 建行 / 网商等）白名单准入，接口由运营机构下发，无公开统一网关',
+    scenes: [],
+    mchId: { label: '运营机构商户号', placeholder: '由运营机构分配' },
+    secrets: [],
+  },
+  [Channel.PAYPAL]: {
+    label: 'PayPal（跨境）',
+    available: false,
+    reason: '跨境收单，需跨境 / 境外主体、境外结算账户与外币对账能力，按跨境版图规划接入',
+    scenes: [],
+    mchId: { label: 'Merchant ID', placeholder: 'PayPal 商户 ID' },
+    secrets: [],
+  },
+  [Channel.DOUYIN]: {
+    label: '抖音支付',
+    available: false,
+    reason: '抖音支付仅面向抖音小程序生态提供「担保支付」，未开放通用收单接口，第三方聚合支付无法直接接入',
+    scenes: [],
+    mchId: { label: '小程序商户号', placeholder: '抖音开放平台分配' },
+    secrets: [],
+  },
 };
 
-/** 商户可下单的渠道集合（银行卡 / 网银收单统一走银联通道，暂不单列渠道） */
-export const ORDERABLE_CHANNELS = Object.values(Channel);
+/** 已接入（可保存配置并下单）的渠道 */
+export const AVAILABLE_CHANNELS = Object.entries(CHANNEL_META)
+  .filter(([, m]) => m.available)
+  .map(([k]) => k);
 
 const PEM_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
 
@@ -133,7 +180,10 @@ export function validateChannelConfig(
   const meta = CHANNEL_META[channel];
   if (!meta) throw new BizException(ErrorCode.PARAM_ERROR, `未知渠道: ${channel}`);
   if (meta.available === false) {
-    throw new BizException(ErrorCode.PARAM_ERROR, `渠道「${meta.label}」尚未接入，请先使用微信 / 支付宝 / 银联`);
+    throw new BizException(
+      ErrorCode.PARAM_ERROR,
+      `渠道「${meta.label}」尚未接入，暂不能保存配置${meta.reason ? `：${meta.reason}` : ''}`,
+    );
   }
 
   // 场景合法性（空 = 全部场景）

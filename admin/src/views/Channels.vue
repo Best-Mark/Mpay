@@ -54,7 +54,15 @@
       <el-form ref="formRef" :model="form" :rules="rules" label-width="150px">
         <el-form-item label="渠道" prop="channel">
           <el-select v-model="form.channel" :disabled="!!editing" style="width: 100%" @change="onChannelChange">
-            <el-option v-for="o in channelOptions" :key="o.value" :label="o.label" :value="o.value" />
+            <el-option-group label="已接入">
+              <el-option v-for="o in channelOptions" :key="o.value" :label="o.label" :value="o.value" />
+            </el-option-group>
+            <el-option-group label="规划中（尚未接入，不能保存）">
+              <el-option v-for="o in plannedOptions" :key="o.value" :label="o.label" :value="o.value" disabled>
+                <span>{{ o.label }}</span>
+                <span style="float: right; color: #8492a6; font-size: 12px">{{ o.reason }}</span>
+              </el-option>
+            </el-option-group>
           </el-select>
         </el-form-item>
         <el-form-item label="配置名称" prop="name">
@@ -118,7 +126,7 @@
 import { ref, reactive, computed, onMounted, nextTick } from 'vue';
 import { ElMessage } from 'element-plus';
 import { api } from '../api';
-import { CHANNEL_META, CHANNEL_OPTIONS, SCENE_OPTIONS, channelName } from '../constants/channels';
+import { CHANNEL_META, CHANNEL_OPTIONS, PLANNED_CHANNEL_OPTIONS, SCENE_OPTIONS, channelName } from '../constants/channels';
 
 const list = ref([]);
 const loading = ref(false);
@@ -144,6 +152,7 @@ const form = reactive({
 });
 
 const channelOptions = CHANNEL_OPTIONS;
+const plannedOptions = PLANNED_CHANNEL_OPTIONS;
 const meta = computed(() => CHANNEL_META[form.channel]);
 const sceneOptions = computed(() => meta.value?.scenes || []);
 

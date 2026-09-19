@@ -1,5 +1,6 @@
 import { IsIn, IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, Max, MaxLength, Min } from 'class-validator';
 import { Channel, TradeType } from '../../common/constants/enums';
+import { AVAILABLE_CHANNELS } from '../channel/channel-meta';
 
 export class CreateOrderDto {
   /** 业务系统订单号（同一 AppId 下唯一，幂等键） */
@@ -13,7 +14,7 @@ export class CreateOrderDto {
   amount: number;
 
   @IsOptional()
-  @IsIn([Channel.WECHAT, Channel.ALIPAY, Channel.UNIONPAY, Channel.MOCK])
+  @IsIn(AVAILABLE_CHANNELS)
   channel?: string = Channel.WECHAT;
 
   @IsOptional()
