@@ -9,10 +9,27 @@ import { PrismaService } from './common/prisma/prisma.service';
 import { AdminAuthService } from './modules/admin/admin-auth.service';
 import { TraceContext } from './common/utils/trace-context';
 import { ChannelService } from './modules/channel/channel.service';
+import { ensureSchema } from './common/prisma/schema-init';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bodyParser: false });
   const logger = new Logger('bootstrap');
+
+  // ===== 数据库结构自愈（必须在 Nest 容器初始化前：Prisma 连接时库必须已存在）=====
+  // 建库 → 建表 → 应用新版本带来的增量迁移；SCHEMA_AUTO_INIT=false 可关闭
+  if ((process.env.SCHEMA_AUTO_INIT ?? 'true') !== 'false') {
+    try {
+      const r = await ensureSchema();
+      if (r.databaseCreated) logger.log(`数据库 ${r.database} 不存在，已自动创建`);
+      if (r.applied.length) logger.log(`已应用数据库迁移 ${r.applied.length} 个: ${r.applied.join(', ')}`);
+      if (r.missingTables.length) {
+        logger.error(`数据库结构不完整，缺少表: ${r.missingTables.join(', ')}（检查 prisma/migrations 是否随包部署）`);
+      }
+    } catch (e: any) {
+      logger.error(`数据库结构自愈失败（不阻断启动，接口将不可用）: ${e.message}`);
+    }
+  }
+
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
 
   // ===== 安全头 =====
   app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: false }));

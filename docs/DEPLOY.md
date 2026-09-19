@@ -24,24 +24,45 @@
 
 多实例注意：定时任务在每个实例都会触发，靠 Redis 锁保证不并发（未开 Redis 时**只部署 1 个实例**）；也可给非主实例设 `RECONCILE_AUTO_ENABLED=false` 只保留主实例跑对账。
 
-## 2. 数据库会自动建吗
+## 2. 建库建表：全自动（启动即自愈）
 
-分三层，别混淆：
+后端**在 Nest 容器初始化之前**执行 `ensureSchema()`（`src/common/prisma/schema-init.ts`），三步全自动：
 
-1. **库（database）不会自动建**：Prisma 不执行 `CREATE DATABASE`。需先手动建库（字符集 `utf8mb4`）：
-   ```sql
-   CREATE DATABASE pay_center CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-   ```
-   用 `docker compose up -d mysql` 时由 `MYSQL_DATABASE=pay_center` 自动创建，可省这一步。
-2. **表会自动建**：仓库已包含初始迁移 `prisma/migrations/20260920000000_init/migration.sql`，在**空库**上执行即可建全部表：
-   ```bash
-   npx prisma migrate deploy
-   ```
-   ⚠️ 若库里已有旧表（此前用 `prisma db push` 建过），先打基线再部署，否则报 `P3005`：
-   ```bash
-   npx prisma migrate resolve --applied 20260920000000_init
-   ```
-3. **初始数据**：后端启动时 `main.ts` 会自动 `ensureSuperAdmin()` 创建 `admin / Pay@admin123`（表不存在时会 warn 但不阻断启动）；`npm run seed` 额外写入渠道占位配置（mock + 微信/支付宝待配置），可跳过，在后台「渠道配置」页手工建也一样。
+1. **自动建库**：用原生驱动（mysql2）以不带库名的连接执行
+   `CREATE DATABASE IF NOT EXISTS <db> DEFAULT CHARACTER SET utf8mb4` —— Prisma 本身不建库，这一层是补齐的。
+2. **自动建表**：扫描 `prisma/migrations/*/migration.sql`，按目录名升序执行未应用的迁移。全新库 → 一次建完全部表（当前基线 `20260920000000_init`）。
+3. **升级补全**：新版本带来的增量迁移（加表 / 加列 / 加索引）在**下次启动时自动应用**，无需手工执行任何命令。
+
+记录与兼容：
+
+- 本 runner 维护记录表 `_schema_migrations`（迁移名 + checksum + 时间），重复启动只跳过不重复执行。
+- 兼容 Prisma CLI：会读取 `_prisma_migrations` 中已完成的迁移并跳过，所以手工 `migrate deploy` 过的库不会被执行第二遍。
+- ⚠️ 反向不成立：若某库先由 runner 建表，之后手工跑 `prisma migrate deploy` 会报 `P3005`（表已存在），此时打基线即可：
+  ```bash
+  npx prisma migrate resolve --applied 20260920000000_init
+  ```
+
+开关与路径：
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `SCHEMA_AUTO_INIT` | `true` | `false` 关闭自愈（改由 DBA 手工执行迁移） |
+| `MIGRATIONS_DIR` | `prisma/migrations` | 迁移脚本目录 |
+
+⚠️ 部署形态要求：runner 需要读到迁移 SQL 文件。若只部署 `dist/`，必须**同时把 `prisma/migrations` 目录拷到服务器**（或用 `MIGRATIONS_DIR` 指向），否则启动日志会报「数据库结构不完整，缺少表: ...」。
+
+**初始数据**：后端启动还会自动 `ensureSuperAdmin()` 创建 `admin / Pay@admin123`；`npm run seed` 只是额外写入渠道占位配置（mock + 微信/支付宝待配置），可跳过，在后台「渠道配置」页手工建也一样。
+
+### 开发时如何产出迁移（升级补全的来源）
+
+改完 `prisma/schema.prisma` 后，在开发机生成并提交迁移 SQL，线上启动时就会自动应用：
+
+```bash
+npm run prisma:migrate -- --name add_xxx_column   # 生成 prisma/migrations/<时间戳>_add_xxx_column/migration.sql
+git add prisma/migrations && git commit
+```
+
+禁止在服务器用 `prisma db push` 兜底（生产有数据丢失风险，且不会进迁移历史）。
 
 ## 3. 首次部署步骤
 
@@ -52,23 +73,25 @@ node -v
 # 1) MySQL / Redis（已有自建实例可跳过）
 docker compose up -d mysql redis
 
-# 2) 建库（docker 方式已自动建，可跳过）
-mysql -uroot -p -e "CREATE DATABASE IF NOT EXISTS pay_center CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+# 2) 建库：可跳过（后端启动会自动 CREATE DATABASE）
+#    仅当数据库账号无建库权限时才需 DBA 预先建好库
 
 # 3) 配置环境变量
 cp .env.example .env
 # 必改：DATABASE_URL / REDIS_ENABLED=true / MASTER_KEY(32字节) / JWT_SECRET / PAY_BASE_URL(https 域名)
 # 生产：DEFAULT_CHANNEL_MODE=prod（关闭 Mock 强制代理）
 
-# 4) 安装依赖 + 生成 Prisma Client + 建表
+# 4) 安装依赖 + 生成 Prisma Client
 npm ci
 npx prisma generate
+# 建表可跳过：后端启动时自动应用迁移（SCHEMA_AUTO_INIT 默认开启）
 npx prisma migrate deploy
-npm run seed            # 可选
+npm run seed            # 可选：渠道占位配置；超管账号启动时会自建
 
 # 5) 构建并启动后端
 npm run build
-pm2 start dist/main.js --name pay-center -i 1   # 多实例需 Redis，见第 1 节
+pm2 start dist/src/main.js --name pay-center -i 1   # 注意产物在 dist/src/ 下
+# 部署 dist 时必须同时拷贝 prisma/migrations（结构自愈要读迁移 SQL）
 pm2 save && pm2 startup
 
 # 6) 构建并托管管理后台

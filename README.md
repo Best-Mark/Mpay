@@ -29,10 +29,9 @@ docker compose up -d mysql redis
 # 2. 配置环境变量
 cp .env.example .env       # 修改 DATABASE_URL / REDIS_* / MASTER_KEY / JWT_SECRET
 
-# 3. 安装 & 初始化
+# 3. 安装 & 初始化（建库建表全自动：启动即自愈，见 docs/DEPLOY.md）
 npm install
 npx prisma generate
-npx prisma migrate deploy  # 建表（库需先手动建：CREATE DATABASE pay_center）
 npm run seed               # 可选：渠道占位配置；超管账号启动时会自建
 
 # 4. 启动
