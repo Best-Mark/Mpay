@@ -62,6 +62,7 @@ src/
 │   ├── upload/        # 图片上传：类型白名单 + sharp 压缩转 WebP
 │   └── mock/          # 模拟收银台（sandbox 跑通全链路）
 admin/                # Vue3 管理后台前端（含公开页 /register 入驻、/portal 商户后台）
+web/                  # Vue3 对外官网 C 端（品牌展示 / 渠道申请用，纯静态，见 web/README.md）
 prisma/               # 数据模型与种子数据
 ```
 
