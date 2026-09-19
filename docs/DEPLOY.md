@@ -78,7 +78,16 @@ git add prisma/migrations && git commit
 要点：
 
 - 数据库以分项形式写入（DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME），启动时自动组装为 `DATABASE_URL`；若原 `.env` 里有整串 `DATABASE_URL`，向导会将其注释掉，保证自定义库名生效。
-- 安装完成后**需重启一次进程**让 Prisma 加载新连接串（向导会调用 `/api/install/restart` 自动触发，PM2 / systemd / docker 会自动拉起；直接 `node` 运行的需手动启动）。
+- 安装完成后**需重启一次进程**让 Prisma 加载新连接串。向导会探测运行环境：
+  - PM2 / Docker / systemd → 自动触发重启并被守护进程拉起，页面轮询到服务恢复后跳登录；
+  - 裸 `node` 运行 → 进程退出，页面直接给出手动命令：
+    ```bash
+    npm run start:prod        # 或 pm2 start dist/src/main.js --name pay-center
+    ```
+  **生产务必用 PM2（或 Docker/systemd）托管**，否则装完要人工拉起。
+- **端口检测**：向导「站点与管理员」步骤可改服务端口并一键检测占用（当前进程自己占的端口不算冲突）。安装时会再校验一次，端口被占用直接拒绝安装，避免出现「改完端口重启起不来」。改端口后 Nginx 与防火墙需同步放通。
+- **地址可达性检测**：可检测 `PAY_BASE_URL` 是否可访问（回调地址配错会导致渠道回调收不到）；出于安全考虑，**禁止填写内网/回环地址**。
+- **安装令牌（可选）**：未安装阶段接口对全网开放，若部署环境暴露在公网，建议设置 `INSTALL_TOKEN`（如 `docker run -e INSTALL_TOKEN=xxx`），之后访问 `/install?token=xxx` 才能执行写操作。
 - 安装标记 `storage/installed.lock` 存在后安装接口自动关闭（重复安装返回 1011）；需重装就删掉该文件和 `.env` 再重启。
 - 既有部署升级不会触发向导：启动时若能连上库且 `admin_user` 表已存在，即视为已安装。
 

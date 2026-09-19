@@ -34,6 +34,10 @@
           title="环境检测未通过：请先解决上面的失败项后重新检测"
           class="mt"
         />
+        <div v-if="status?.tokenRequired" class="token-row">
+          <span>安装令牌</span>
+          <el-input v-model="token" placeholder="部署时设置的 INSTALL_TOKEN（也可用 /install?token=xxx 带入）" />
+        </div>
         <div class="actions">
           <el-button :loading="loading" @click="loadStatus">重新检测</el-button>
           <el-button type="primary" :disabled="!envOk" @click="step = 1">下一步</el-button>
@@ -85,8 +89,20 @@
       <div v-else-if="step === 2" class="pane">
         <el-form label-width="110px" size="default">
           <el-form-item label="对外访问地址">
-            <el-input v-model="form.site.payBaseUrl" placeholder="https://pay.example.com" />
+            <div class="row">
+              <el-input v-model="form.site.payBaseUrl" placeholder="https://pay.example.com" />
+              <el-button :disabled="!form.site.payBaseUrl" @click="checkUrl">检测</el-button>
+            </div>
             <div class="hint">用于拼接渠道异步回调地址，需为公网可访问的 HTTPS 地址</div>
+            <div v-if="urlCheck" class="hint" :class="urlCheck.ok ? 'ok' : 'bad'">{{ urlCheck.message }}</div>
+          </el-form-item>
+          <el-form-item label="服务端口">
+            <div class="row">
+              <el-input v-model.number="form.site.port" style="width: 120px" />
+              <el-button @click="checkPort">检测占用</el-button>
+            </div>
+            <div class="hint">后端监听端口（改动后重启生效，Nginx / 防火墙需同步放通）</div>
+            <div v-if="portCheck" class="hint" :class="portCheck.inUse ? 'bad' : 'ok'">{{ portCheck.message }}</div>
           </el-form-item>
           <el-form-item label="渠道模式">
             <el-radio-group v-model="form.site.channelMode">
@@ -149,10 +165,17 @@
             :title="restartMsg.text"
           />
         </template>
+        <el-alert
+          v-if="result && runtime && !runtime.canAutoRestart"
+          type="warning"
+          :closable="false"
+          class="mt"
+          :title="runtime.restartHint"
+        />
         <div class="actions">
           <el-button v-if="!result" type="primary" :loading="installing" @click="doInstall">开始安装</el-button>
           <template v-else>
-            <el-button :loading="waitingRestart" @click="doRestart">重启服务</el-button>
+            <el-button v-if="runtime?.canAutoRestart" :loading="waitingRestart" @click="doRestart">重启服务</el-button>
             <el-button type="primary" :disabled="!serviceUp" @click="goLogin">进入登录</el-button>
           </template>
         </div>
@@ -179,11 +202,16 @@ const status = ref(null);
 const dbTest = ref(null);
 const result = ref(null);
 const restartMsg = ref(null);
+const runtime = ref(null);
+const portCheck = ref(null);
+const urlCheck = ref(null);
+// 安装令牌：部署时若设置了 INSTALL_TOKEN，可通过 /install?token=xxx 带入
+const token = ref(new URLSearchParams(location.search).get('token') || '');
 
 const form = reactive({
   db: { host: '127.0.0.1', port: 3306, user: 'root', password: '', database: 'pay_center' },
   redis: { enabled: false, host: '127.0.0.1', port: 6379, password: '' },
-  site: { payBaseUrl: '', masterKey: '', channelMode: 'sandbox' },
+  site: { payBaseUrl: '', masterKey: '', channelMode: 'sandbox', port: 3000 },
   admin: { username: 'admin', password: '' },
 });
 
@@ -195,6 +223,8 @@ async function loadStatus() {
   try {
     const s = await api.installStatus();
     status.value = s;
+    runtime.value = s.runtime;
+    if (s.port) form.site.port = s.port;
     // 用服务端已有配置回填（密码不回传，需手工填）
     if (s.db?.host) {
       form.db.host = s.db.host;
@@ -219,11 +249,27 @@ async function loadStatus() {
 async function testDb() {
   testing.value = true;
   try {
-    dbTest.value = await api.installTestDb(form.db);
+    dbTest.value = await api.installTestDb(form.db, token.value);
   } catch (e) {
     dbTest.value = { ok: false, message: e.message };
   } finally {
     testing.value = false;
+  }
+}
+
+async function checkPort() {
+  try {
+    portCheck.value = await api.installCheckPort(form.site.port, token.value);
+  } catch (e) {
+    portCheck.value = { inUse: true, message: e.message };
+  }
+}
+
+async function checkUrl() {
+  try {
+    urlCheck.value = await api.installCheckUrl(form.site.payBaseUrl, token.value);
+  } catch (e) {
+    urlCheck.value = { ok: false, message: e.message };
   }
 }
 
@@ -235,12 +281,10 @@ async function doInstall() {
   installing.value = true;
   step.value = 3;
   try {
-    result.value = await api.installApply({
-      db: form.db,
-      redis: form.redis,
-      site: form.site,
-      admin: form.admin,
-    });
+    result.value = await api.installApply(
+      { db: form.db, redis: form.redis, site: form.site, admin: form.admin },
+      token.value,
+    );
     // 安装完成：自动触发一次重启，让 Prisma 加载新的连接串
     await doRestart();
   } catch (e) {
@@ -254,11 +298,20 @@ async function doInstall() {
 async function doRestart() {
   if (!result.value?.restartToken) return;
   waitingRestart.value = true;
-  restartMsg.value = { type: 'info', text: '正在重启服务，请稍候…' };
+  const auto = runtime.value?.canAutoRestart;
+  restartMsg.value = {
+    type: 'info',
+    text: auto ? '正在重启服务，守护进程会自动拉起…' : '进程正在退出，请按下方命令手动启动…',
+  };
   try {
-    await api.installRestart(result.value.restartToken);
+    await api.installRestart(result.value.restartToken, token.value);
   } catch {
     /* 进程退出可能导致请求中断，属预期 */
+  }
+  if (!auto) {
+    waitingRestart.value = false;
+    restartMsg.value = { type: 'warning', text: runtime.value?.restartHint || '请手动启动服务' };
+    return;
   }
   // 轮询直到服务重新可用
   for (let i = 0; i < 40; i++) {
@@ -345,6 +398,33 @@ onMounted(loadStatus);
 .warn {
   margin-top: 6px;
   color: #e6a23c;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.ok {
+  color: #67c23a;
+}
+
+.bad {
+  color: #f56c6c;
+}
+
+.token-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #606266;
+}
+
+.token-row span {
+  flex: 0 0 64px;
 }
 
 .actions {

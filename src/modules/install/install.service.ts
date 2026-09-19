@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import mysql from 'mysql2/promise';
+import * as net from 'net';
+import * as dns from 'dns';
 import { BizException } from '../../common/exceptions/biz.exception';
 import { ErrorCode } from '../../common/constants/error-codes';
 import { ensureSchema, parseDatabaseUrl } from '../../common/prisma/schema-init';
@@ -26,7 +28,7 @@ export interface DbInput {
 export interface InstallInput {
   db: DbInput;
   redis: { enabled: boolean; host: string; port: number; password?: string };
-  site: { payBaseUrl: string; masterKey?: string; channelMode?: 'sandbox' | 'prod' };
+  site: { payBaseUrl: string; masterKey?: string; channelMode?: 'sandbox' | 'prod'; port?: number };
   admin: { username: string; password: string; nickname?: string };
 }
 
@@ -83,6 +85,49 @@ async function probe(target: { host: string; port: number; user: string; passwor
   } catch (e: any) {
     return { ok: false, message: e?.message || String(e) };
   }
+}
+
+/** 私有/回环地址判定（安装阶段的地址探测禁止指向内网，避免被当作探测代理） */
+function isPrivateAddress(ip: string | null): boolean {
+  if (!ip) return false;
+  if (ip === '::1' || ip === '0.0.0.0' || ip.startsWith('fc') || ip.startsWith('fd') || ip.startsWith('fe80')) return true;
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return false;
+  if (parts[0] === 10 || parts[0] === 127) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  if (parts[0] === 169 && parts[1] === 254) return true;
+  return false;
+}
+
+/**
+ * 运行环境探测：决定安装后能否自动拉起
+ * - pm2 / docker / systemd 下进程退出会被自动拉起 → 可自动重启
+ * - 裸 node 运行则只能给出手动启动命令
+ */
+export function runtimeInfo() {
+  const pm2 = !!process.env.pm_id || !!process.env.PM2_HOME || !!process.env.PM2_USAGE;
+  const docker = fs.existsSync('/.dockerenv');
+  const systemd = !!process.env.INVOCATION_ID || !!process.env.JOURNAL_STREAM;
+  const canAutoRestart = pm2 || docker || systemd;
+  const kind = pm2 ? 'pm2' : docker ? 'docker' : systemd ? 'systemd' : 'node';
+  return {
+    kind,
+    pm2,
+    docker,
+    systemd,
+    canAutoRestart,
+    restartHint: canAutoRestart
+      ? `检测到 ${kind} 守护，进程退出后会自动拉起`
+      : '未检测到守护进程（PM2/Docker/systemd），进程退出后需手动启动：npm run start:prod 或 pm2 start dist/src/main.js --name pay-center',
+  };
+}
+
+/** 安装令牌：设置了 INSTALL_TOKEN 才校验（未安装阶段接口对全网开放，防止被抢先安装/探测） */
+export function verifyInstallToken(token?: string): void {
+  const expected = process.env.INSTALL_TOKEN;
+  if (!expected) return;
+  if (!token || token !== expected) throw new BizException(ErrorCode.FORBIDDEN, '安装令牌无效');
 }
 
 /**
@@ -145,6 +190,9 @@ export class InstallService {
       dbConfigured: !!url,
       dbReachable,
       db: { ...db, password: undefined },
+      runtime: runtimeInfo(),
+      port: Number(process.env.PORT || 3000),
+      tokenRequired: !!process.env.INSTALL_TOKEN,
       site: {
         payBaseUrl: process.env.PAY_BASE_URL || '',
         channelMode: process.env.DEFAULT_CHANNEL_MODE || 'sandbox',
@@ -205,6 +253,50 @@ export class InstallService {
     }
   }
 
+  /** 检测本机端口是否被占用（当前进程自身占用的端口视为可用） */
+  async checkPort(port: number) {
+    const p = Number(port);
+    if (!Number.isInteger(p) || p < 1 || p > 65535) {
+      throw new BizException(ErrorCode.PARAM_ERROR, '端口需在 1-65535 之间');
+    }
+    const selfPort = Number(process.env.PORT || 3000);
+    if (p === selfPort) return { port: p, inUse: false, self: true, message: `当前服务正在使用 ${p}` };
+    const inUse = await new Promise<boolean>((resolve) => {
+      const srv = net.createServer();
+      srv.once('error', () => resolve(true));
+      srv.once('listening', () => srv.close(() => resolve(false)));
+      srv.listen(p, '0.0.0.0');
+    });
+    return { port: p, inUse, self: false, message: inUse ? `端口 ${p} 已被其它进程占用` : `端口 ${p} 可用` };
+  }
+
+  /** 检测对外地址是否可访问（回调地址配错会导致渠道回调收不到，故安装时提示） */
+  async checkUrl(raw: string) {
+    const text = (raw || '').trim().replace(/\/$/, '');
+    if (!text) throw new BizException(ErrorCode.PARAM_ERROR, '请先填写对外访问地址');
+    let parsed: URL;
+    try {
+      parsed = new URL(text);
+    } catch {
+      throw new BizException(ErrorCode.PARAM_ERROR, '地址格式不正确，需以 http:// 或 https:// 开头');
+    }
+    if (!/^https?:$/.test(parsed.protocol)) {
+      throw new BizException(ErrorCode.PARAM_ERROR, '仅支持 http/https 地址');
+    }
+    const host = parsed.hostname;
+    const ip = net.isIP(host) ? host : await dns.promises.lookup(host).then((r) => r.address).catch(() => null);
+    if (isPrivateAddress(ip)) throw new BizException(ErrorCode.PARAM_ERROR, '不允许填写内网/回环地址');
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4000);
+      const res = await fetch(parsed.origin, { method: 'GET', redirect: 'follow', signal: ctrl.signal });
+      clearTimeout(timer);
+      return { ok: res.ok, status: res.status, message: `可访问，HTTP ${res.status}` };
+    } catch (e: any) {
+      return { ok: false, status: 0, message: e?.name === 'AbortError' ? '连接超时（4s）' : e?.message || '不可达' };
+    }
+  }
+
   /**
    * 执行安装：写 .env → 建库建表 → 创建超管 → 落安装标记
    * @returns restartToken：用于调用 /api/install/restart 触发一次重启（PM2/systemd/docker 会自动拉起）
@@ -220,9 +312,14 @@ export class InstallService {
     }
 
     const masterKey = (input?.site?.masterKey || '').trim() || crypto.randomBytes(32).toString('hex');
+    const port = Number(input?.site?.port) || Number(process.env.PORT) || 3000;
+    // 端口冲突自检：换端口后重启起不来是很坑的故障，故安装时就拦住（自身占用的端口不算冲突）
+    const portCheck = await this.checkPort(port);
+    if (portCheck.inUse) throw new BizException(ErrorCode.PARAM_ERROR, `端口 ${port} 已被其它进程占用，请更换`);
 
     // 1) 写入 .env（数据库名即用户自定义的名字）
     const patch: Record<string, string> = {
+      PORT: String(port),
       DB_HOST: input.db.host,
       DB_PORT: String(Number(input.db.port) || 3306),
       DB_USER: input.db.user,

@@ -87,9 +87,11 @@ export const api = {
 
   // ===== 安装向导（仅未安装时可用）=====
   installStatus: () => unwrap(http.get('/install/status')),
-  installTestDb: (data) => unwrap(http.post('/install/test-db', data)),
-  installApply: (data) => unwrap(http.post('/install/apply', data)),
-  installRestart: (token) => unwrap(http.post('/install/restart', { token })),
+  installTestDb: (data, token) => unwrap(http.post('/install/test-db', { ...data, token })),
+  installCheckPort: (port, token) => unwrap(http.post('/install/check-port', { port, token })),
+  installCheckUrl: (url, token) => unwrap(http.post('/install/check-url', { url, token })),
+  installApply: (data, token) => unwrap(http.post('/install/apply', { ...data, token })),
+  installRestart: (restartToken, token) => unwrap(http.post('/install/restart', { restartToken, token })),
 };
 
 export { getAdmin };
