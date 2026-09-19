@@ -35,7 +35,8 @@ const router = createRouter({
 let installState = null;
 
 async function ensureInstallState() {
-  if (installState === null) {
+  // 未安装状态下每次重新查询：安装完成后（不刷新页面）守卫能立即放行跳转登录页
+  if (installState === null || installState.installed === false) {
     try {
       installState = await api.installStatus();
     } catch {

@@ -60,8 +60,10 @@
             <el-input v-model="form.db.password" type="password" show-password placeholder="可为空" />
           </el-form-item>
           <el-form-item label="数据库名">
-            <el-input v-model="form.db.database" placeholder="pay_center" />
-            <div class="hint">可自定义（字母/数字/下划线，长度 1-64）；不存在时会自动创建，不会动其它库</div>
+            <el-input v-model="form.db.database" placeholder="pay_center" @blur="normalizeDbNameInput" />
+            <div class="hint">
+              可自定义（字母/数字/下划线，长度 1-64）；不存在时会自动创建，不会动其它库。<b>含大写字母将自动转为小写</b>——Linux 下 MySQL 库名区分大小写，混用会出现「库已存在却连不上」
+            </div>
           </el-form-item>
         </el-form>
 
@@ -74,6 +76,10 @@
             dbTest.ok
               ? `连接成功（${dbTest.serverVersion || 'MySQL'}）· 库${dbTest.databaseExists ? '已存在' : '不存在，将自动创建'}${
                   dbTest.canCreateDatabase ? '' : ' · ⚠️ 该账号无建库权限，需管理员先建库'
+                }${
+                  dbTest.nameAdjusted
+                    ? ` · 数据库名已自动转为小写「${dbTest.normalizedDatabase}」（MySQL 区分大小写）`
+                    : ''
                 }`
               : `连接失败：${dbTest.message}`
           "
@@ -152,6 +158,9 @@
           <el-result icon="success" title="安装完成">
             <template #sub-title>
               <div>数据库：{{ result.database }}{{ result.databaseCreated ? '（已自动创建）' : '（已存在）' }}</div>
+              <div v-if="result.databaseNormalized" class="warn">
+                数据库名已自动规范化（大小写）：{{ result.databaseRequested }} → {{ result.database }}
+              </div>
               <div>应用迁移：{{ result.appliedMigrations.length }} 个</div>
               <div>管理员：{{ form.admin.username }} / {{ form.admin.password }}</div>
               <div class="warn">请妥善保存管理员密码，安装完成后建议立即登录修改</div>
@@ -249,10 +258,24 @@ async function loadStatus() {
   }
 }
 
+/** 数据库名规范化：MySQL 在 Linux 下区分库名大小写，统一按小写提交 */
+function normalizeDbNameInput() {
+  const v = String(form.db.database || '').trim().toLowerCase();
+  if (v && v !== form.db.database) {
+    form.db.database = v;
+    ElMessage.info(`数据库名已自动转为小写：${v}`);
+  }
+}
+
 async function testDb() {
+  normalizeDbNameInput();
   testing.value = true;
   try {
-    dbTest.value = await api.installTestDb(form.db, token.value);
+    dbTest.value = await api.installTestDb({ ...form.db }, token.value);
+    // 服务端若按现有库校正了库名，回填到表单，避免安装时使用不一致的名字
+    if (dbTest.value?.ok && dbTest.value.nameAdjusted && dbTest.value.normalizedDatabase) {
+      form.db.database = dbTest.value.normalizedDatabase;
+    }
   } catch (e) {
     dbTest.value = { ok: false, message: e.message };
   } finally {
@@ -281,6 +304,8 @@ async function doInstall() {
     ElMessage.warning('两次输入的密码不一致');
     return;
   }
+  // 兜底：未点「测试连接」直接安装时也要规范化库名
+  normalizeDbNameInput();
   installing.value = true;
   step.value = 3;
   try {

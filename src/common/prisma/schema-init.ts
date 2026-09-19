@@ -32,8 +32,14 @@ const CORE_TABLES = [
 ];
 
 export interface SchemaInitResult {
-  /** 数据库名 */
+  /** 实际使用的数据库名（可能与传入的大小写不同） */
   database: string;
+  /** 请求/配置的原始库名 */
+  requestedDatabase: string;
+  /** 服务端实际库名（已按现有库或规范化规则校正） */
+  actualDatabase: string;
+  /** 库名是否被校正过（大小写不一致） */
+  nameAdjusted: boolean;
   /** 本次是否新建了库 */
   databaseCreated: boolean;
   /** 本次执行的迁移（含目录名） */
@@ -125,6 +131,33 @@ async function loadApplied(conn: mysql.Connection): Promise<Set<string>> {
 }
 
 /**
+ * 数据库名规范化：统一小写
+ * Linux 下 MySQL 库名区分大小写（lower_case_table_names=0），
+ * 填 `Mpay_center` 而库实际是 `mpay_center` 时，连接会被拒（ER_DBACCESS_DENIED_ERROR），
+ * 且报错很不直观（Prisma 侧表现为 P1010），故统一按小写处理。
+ */
+export function normalizeDatabaseName(name: string): string {
+  return (name || '').trim().toLowerCase();
+}
+
+/** 查找已存在库的实际名称（先精确匹配，再大小写不敏感匹配），不存在返回 null */
+async function resolveExistingDatabase(
+  conn: mysql.Connection,
+  name: string,
+): Promise<string | null> {
+  const [exact] = await conn.query(
+    'SELECT `SCHEMA_NAME` FROM `information_schema`.`SCHEMATA` WHERE `SCHEMA_NAME` = ? LIMIT 1',
+    [name],
+  );
+  if ((exact as any[]).length) return (exact as any[])[0].SCHEMA_NAME;
+  const [ci] = await conn.query(
+    'SELECT `SCHEMA_NAME` FROM `information_schema`.`SCHEMATA` WHERE LOWER(`SCHEMA_NAME`) = LOWER(?) LIMIT 1',
+    [name],
+  );
+  return (ci as any[]).length ? (ci as any[])[0].SCHEMA_NAME : null;
+}
+
+/**
  * 启动时自愈入口
  * @returns 执行结果；库不可达时抛错
  */
@@ -132,8 +165,12 @@ export async function ensureSchema(): Promise<SchemaInitResult> {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('未配置 DATABASE_URL');
   const target = parseDatabaseUrl(url);
+  const requested = target.database;
   const result: SchemaInitResult = {
-    database: target.database,
+    database: requested,
+    requestedDatabase: requested,
+    actualDatabase: requested,
+    nameAdjusted: false,
     databaseCreated: false,
     applied: [],
     skipped: 0,
@@ -152,19 +189,28 @@ export async function ensureSchema(): Promise<SchemaInitResult> {
   // ===== 1. 自动建库（不带 database 连接）=====
   const root = await mysql.createConnection(baseCfg);
   try {
-    const [rows] = await root.query('SHOW DATABASES LIKE ?', [target.database]);
-    if ((rows as any[]).length === 0) {
+    const existing = await resolveExistingDatabase(root, requested);
+    if (existing) {
+      // 复用现有库的实际名称：大小写不一致时若仍用请求名连接会被拒绝
+      result.actualDatabase = existing;
+      result.nameAdjusted = existing !== requested;
+    } else {
+      // 全新库：统一按小写创建，避免后续大小写歧义
+      const dbName = normalizeDatabaseName(requested);
+      result.actualDatabase = dbName;
+      result.nameAdjusted = dbName !== requested;
       await root.query(
-        `CREATE DATABASE \`${target.database}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+        `CREATE DATABASE \`${dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
       );
       result.databaseCreated = true;
     }
   } finally {
     await root.end();
   }
+  result.database = result.actualDatabase;
 
   // ===== 2/3. 建表 + 应用增量迁移 =====
-  const conn = await mysql.createConnection({ ...baseCfg, database: target.database });
+  const conn = await mysql.createConnection({ ...baseCfg, database: result.actualDatabase });
   try {
     const applied = await loadApplied(conn);
     for (const m of listMigrations(resolveMigrationsDir())) {

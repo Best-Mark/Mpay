@@ -19,6 +19,14 @@ import { ErrorCode } from './common/constants/error-codes';
 async function bootstrap() {
   const logger = new Logger('bootstrap');
 
+  // ===== BigInt JSON 序列化 =====
+  // Prisma 的主键/金额多为 BigInt，JSON.stringify 遇到 BigInt 会抛
+  // "Do not know how to serialize a BigInt"，被全局异常兜底成「系统繁忙」。
+  // 统一转成字符串输出（前端按字符串使用，避免精度丢失）。
+  (BigInt.prototype as any).toJSON = function () {
+    return this.toString();
+  };
+
   // ===== 环境变量（必须早于 Nest：Prisma 实例化时就要读 DATABASE_URL）=====
   loadEnvFile();
   if (!process.env.DATABASE_URL) {

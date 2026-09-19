@@ -7,7 +7,7 @@ import * as net from 'net';
 import * as dns from 'dns';
 import { BizException } from '../../common/exceptions/biz.exception';
 import { ErrorCode } from '../../common/constants/error-codes';
-import { ensureSchema, parseDatabaseUrl } from '../../common/prisma/schema-init';
+import { ensureSchema, normalizeDatabaseName, parseDatabaseUrl } from '../../common/prisma/schema-init';
 import { composeDatabaseUrl, currentDbConfig, loadEnvFile, patchEnvFile } from '../../common/utils/env-file';
 import { PasswordUtil } from '../../common/utils/password.util';
 
@@ -221,6 +221,10 @@ export class InstallService {
   /** 测试数据库连接，并探测建库权限与目标库是否已存在 */
   async testDb(input: DbInput) {
     this.assertDbInput(input);
+    // 库名统一小写：Linux MySQL 区分大小写，混用大小写会导致「库存在却连不上」
+    const rawDatabase = input.database;
+    const database = normalizeDatabaseName(rawDatabase);
+    const nameAdjusted = database !== rawDatabase;
     const r = await probe(input);
     if (!r.ok) return { ok: false, message: r.message, databaseExists: false, canCreateDatabase: false };
 
@@ -232,8 +236,19 @@ export class InstallService {
       connectTimeout: 4000,
     });
     try {
-      const [dbs] = await conn.query('SHOW DATABASES LIKE ?', [input.database]);
-      const databaseExists = (dbs as any[]).length > 0;
+      // 先精确匹配，再大小写不敏感匹配，取服务端实际库名
+      const [exact] = await conn.query(
+        'SELECT `SCHEMA_NAME` FROM `information_schema`.`SCHEMATA` WHERE `SCHEMA_NAME` = ? LIMIT 1',
+        [database],
+      );
+      let databaseExists = (exact as any[]).length > 0;
+      if (!databaseExists) {
+        const [ci] = await conn.query(
+          'SELECT `SCHEMA_NAME` FROM `information_schema`.`SCHEMATA` WHERE LOWER(`SCHEMA_NAME`) = LOWER(?) LIMIT 1',
+          [database],
+        );
+        databaseExists = (ci as any[]).length > 0;
+      }
       // 建库权限：优先看授权串，无法判断时按可建库处理（后续真实建库会给出明确错误）
       let canCreateDatabase = true;
       try {
@@ -245,7 +260,17 @@ export class InstallService {
       } catch {
         /* 忽略：保留默认 true */
       }
-      return { ok: true, databaseExists, canCreateDatabase, serverVersion: r.serverVersion };
+      return {
+        ok: true,
+        databaseExists,
+        canCreateDatabase,
+        serverVersion: r.serverVersion,
+        normalizedDatabase: database,
+        nameAdjusted,
+        hint: nameAdjusted
+          ? `数据库名含大写字母，已自动转为小写「${database}」（Linux 下 MySQL 库名区分大小写，混用会导致库存在却连不上）`
+          : undefined,
+      };
     } catch (e: any) {
       return { ok: false, message: e?.message || String(e), databaseExists: false, canCreateDatabase: false };
     } finally {
@@ -304,6 +329,12 @@ export class InstallService {
   async apply(input: InstallInput) {
     if (isInstalled()) throw new BizException(ErrorCode.ALREADY_INSTALLED, '系统已安装，如需重装请删除 storage/installed.lock');
     this.assertDbInput(input?.db);
+    // 库名统一小写：避免 Linux MySQL 下「填 Mpay_center 而实际库是 mpay_center」导致的连接被拒
+    const rawDbName = input.db.database;
+    input.db.database = normalizeDatabaseName(rawDbName);
+    if (input.db.database !== rawDbName) {
+      this.logger.warn(`数据库名已自动规范化：${rawDbName} -> ${input.db.database}`);
+    }
     if (!input?.admin?.username || input.admin.username.length < 3) {
       throw new BizException(ErrorCode.PARAM_ERROR, '管理员用户名至少 3 位');
     }
@@ -347,6 +378,15 @@ export class InstallService {
     const schema = await ensureSchema();
     if (schema.missingTables.length) {
       throw new BizException(ErrorCode.SYSTEM_ERROR, `建表不完整，缺少: ${schema.missingTables.join(', ')}`);
+    }
+    // 以服务端实际库名为准回填配置：库已存在且大小写不一致时用请求名会连不上
+    if (schema.actualDatabase && schema.actualDatabase !== patch.DB_NAME) {
+      this.logger.warn(`数据库名按服务端实际库名修正：${patch.DB_NAME} -> ${schema.actualDatabase}`);
+      patch.DB_NAME = schema.actualDatabase;
+      input.db.database = schema.actualDatabase;
+      patchEnvFile({ DB_NAME: schema.actualDatabase });
+      process.env.DB_NAME = schema.actualDatabase;
+      process.env.DATABASE_URL = composeDatabaseUrl()!;
     }
 
     // 3) 创建超级管理员（此处用原生驱动：Prisma 客户端仍持有安装前的连接串）
@@ -396,6 +436,8 @@ export class InstallService {
     return {
       installed: true,
       database: input.db.database,
+      databaseRequested: rawDbName,
+      databaseNormalized: input.db.database !== rawDbName || schema.nameAdjusted,
       databaseCreated: schema.databaseCreated,
       appliedMigrations: schema.applied,
       restartToken: this.restartToken,
