@@ -13,7 +13,7 @@ export class CreateOrderDto {
   amount: number;
 
   @IsOptional()
-  @IsIn([Channel.WECHAT, Channel.ALIPAY, Channel.MOCK])
+  @IsIn([Channel.WECHAT, Channel.ALIPAY, Channel.UNIONPAY, Channel.MOCK])
   channel?: string = Channel.WECHAT;
 
   @IsOptional()

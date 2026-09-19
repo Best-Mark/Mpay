@@ -8,6 +8,7 @@
           <el-option label="全部渠道" value="ALL" />
           <el-option label="微信" value="wechat" />
           <el-option label="支付宝" value="alipay" />
+          <el-option label="银联 / 云闪付" value="unionpay" />
           <el-option label="模拟" value="mock" />
         </el-select>
         <el-select v-model="q.status" placeholder="状态" clearable style="width: 130px">
@@ -152,6 +153,7 @@
             <el-option label="全部渠道" value="ALL" />
             <el-option label="微信" value="wechat" />
             <el-option label="支付宝" value="alipay" />
+            <el-option label="银联 / 云闪付" value="unionpay" />
             <el-option label="模拟" value="mock" />
           </el-select>
         </el-form-item>

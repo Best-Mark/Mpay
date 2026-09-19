@@ -61,6 +61,7 @@
           <el-select v-model="form.allowChannels" multiple placeholder="留空=全部渠道" style="width: 100%">
             <el-option label="微信" value="wechat" />
             <el-option label="支付宝" value="alipay" />
+            <el-option label="银联 / 云闪付" value="unionpay" />
             <el-option label="模拟" value="mock" />
           </el-select>
         </el-form-item>

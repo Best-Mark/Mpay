@@ -10,7 +10,7 @@
     </div>
 
     <el-table :data="list" v-loading="loading" border size="small" stripe>
-      <el-table-column prop="channel" label="渠道" width="100">
+      <el-table-column prop="channel" label="渠道" width="110">
         <template #default="{ row }">
           <el-tag size="small">{{ channelName(row.channel) }}</el-tag>
         </template>
@@ -46,57 +46,59 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="editing ? '编辑渠道配置' : '新增渠道配置'" width="580px">
-      <el-form :model="form" label-width="150px">
-        <el-form-item label="渠道" required>
-          <el-select v-model="form.channel" :disabled="!!editing" style="width: 100%">
-            <el-option label="微信支付" value="wechat" />
-            <el-option label="支付宝" value="alipay" />
-            <el-option label="模拟渠道" value="mock" />
+    <el-dialog v-model="dialogVisible" :title="editing ? '编辑渠道配置' : '新增渠道配置'" width="620px">
+      <el-alert v-if="meta" type="info" :closable="false" style="margin-bottom: 12px">
+        {{ meta.mchId?.hint || '' }}<template v-if="meta.appId?.hint">；AppId {{ meta.appId.hint }}</template>
+      </el-alert>
+
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="150px">
+        <el-form-item label="渠道" prop="channel">
+          <el-select v-model="form.channel" :disabled="!!editing" style="width: 100%" @change="onChannelChange">
+            <el-option v-for="o in channelOptions" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
         </el-form-item>
-        <el-form-item label="配置名称" required>
+        <el-form-item label="配置名称" prop="name">
           <el-input v-model="form.name" placeholder="如：微信-主商户" />
         </el-form-item>
-        <el-form-item label="商户号 mchId" required>
-          <el-input v-model="form.mchId" />
+        <el-form-item :label="meta?.mchId?.label || '商户号'" prop="mchId">
+          <el-input v-model="form.mchId" :placeholder="meta?.mchId?.placeholder || ''" />
         </el-form-item>
-        <el-form-item label="渠道应用 AppId">
-          <el-input v-model="form.channelAppId" placeholder="公众号/小程序 AppID 或支付宝应用 APPID" />
+        <el-form-item v-if="meta?.appId" :label="meta.appId.label" prop="channelAppId">
+          <el-input v-model="form.channelAppId" :placeholder="meta.appId.placeholder || ''" />
         </el-form-item>
-        <el-form-item label="场景 scene">
+        <el-form-item label="场景 scene" prop="scene">
           <el-select v-model="form.scene" style="width: 100%">
-            <el-option label="JSAPI（公众号/小程序）" value="JSAPI" />
-            <el-option label="NATIVE（扫码）" value="NATIVE" />
-            <el-option label="APP" value="APP" />
-            <el-option label="H5" value="H5" />
+            <el-option label="全部场景" value="" />
+            <el-option v-for="s in sceneOptions" :key="s" :label="SCENE_OPTIONS[s] || s" :value="s" />
           </el-select>
         </el-form-item>
         <el-form-item label="沙箱环境">
           <el-switch v-model="form.isSandbox" />
+          <span style="margin-left: 8px; color: #8492a6; font-size: 12px">
+            {{ form.channel === 'unionpay' ? '银联测试网关 gateway.test.95516.com' : '开启后走模拟渠道，不产生真实资金' }}
+          </span>
         </el-form-item>
         <el-form-item label="优先级">
           <el-input-number v-model="form.priority" :min="0" :max="99" />
           <span style="margin-left: 8px; color: #8492a6; font-size: 12px">数字越大越优先</span>
         </el-form-item>
-        <el-form-item label="证书序列号">
-          <el-input v-model="form.certSerialNo" placeholder="微信 v3 商户证书序列号" />
-        </el-form-item>
-        <el-form-item label="签名类型">
-          <el-select v-model="form.signType" style="width: 100%">
-            <el-option label="RSA2（支付宝）" value="RSA2" />
-            <el-option label="RSA（支付宝旧）" value="RSA" />
+
+        <!-- 按渠道渲染密钥 / 参数字段 -->
+        <el-form-item
+          v-for="f in meta?.secrets || []"
+          :key="f.key"
+          :label="f.label"
+          :prop="secretProp(f.key)"
+        >
+          <el-select v-if="f.type === 'select'" v-model="form[f.key]" style="width: 100%">
+            <el-option v-for="o in f.options" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
+          <el-input v-else-if="f.type === 'textarea'" v-model="form[f.key]" type="textarea" :rows="3" :placeholder="secretPlaceholder(f)" />
+          <el-input v-else-if="f.type === 'password'" v-model="form[f.key]" type="password" show-password :placeholder="secretPlaceholder(f)" />
+          <el-input v-else v-model="form[f.key]" :placeholder="secretPlaceholder(f)" />
+          <div v-if="f.hint" style="color: #8492a6; font-size: 12px; margin-top: 2px">{{ f.hint }}</div>
         </el-form-item>
-        <el-form-item label="商户私钥">
-          <el-input v-model="form.privateKey" type="textarea" :rows="3" :placeholder="editing ? '留空表示不修改' : 'PEM 格式私钥内容'" />
-        </el-form-item>
-        <el-form-item label="平台证书/公钥">
-          <el-input v-model="form.platformCert" type="textarea" :rows="3" :placeholder="editing ? '留空表示不修改' : '微信平台证书 / 支付宝公钥 PEM'" />
-        </el-form-item>
-        <el-form-item label="APIv3 密钥">
-          <el-input v-model="form.apiV3Key" type="password" show-password :placeholder="editing ? '留空表示不修改' : '微信 v3 APIv3 密钥（32位）'" />
-        </el-form-item>
+
         <el-form-item label="异步通知地址">
           <el-input v-model="form.notifyUrl" placeholder="留空使用系统默认" />
         </el-form-item>
@@ -113,15 +115,17 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, nextTick } from 'vue';
 import { ElMessage } from 'element-plus';
 import { api } from '../api';
+import { CHANNEL_META, CHANNEL_OPTIONS, SCENE_OPTIONS, channelName } from '../constants/channels';
 
 const list = ref([]);
 const loading = ref(false);
 const saving = ref(false);
 const dialogVisible = ref(false);
 const editing = ref(null);
+const formRef = ref(null);
 const form = reactive({
   channel: 'wechat',
   name: '',
@@ -139,7 +143,42 @@ const form = reactive({
   remark: '',
 });
 
-const channelName = (c) => ({ wechat: '微信支付', alipay: '支付宝', mock: '模拟渠道', unionpay: '银联' }[c] || c);
+const channelOptions = CHANNEL_OPTIONS;
+const meta = computed(() => CHANNEL_META[form.channel]);
+const sceneOptions = computed(() => meta.value?.scenes || []);
+
+/** 密钥字段 prop：编辑态密钥留空=不修改，因此仅新增态做必填校验 */
+const secretProp = (key) => (key === 'signType' ? `signType` : key);
+const secretPlaceholder = (f) => (editing.value ? '留空表示不修改' : f.placeholder || '');
+
+const rules = computed(() => {
+  const m = meta.value || {};
+  const r = {
+    channel: [{ required: true, message: '请选择渠道' }],
+    name: [{ required: true, message: '请填写配置名称', trigger: 'blur' }],
+    mchId: [
+      { required: true, message: `${m.mchId?.label || '商户号'}必填`, trigger: 'blur' },
+      ...(m.mchId?.pattern
+        ? [{ pattern: m.mchId.pattern, message: `格式不正确：${m.mchId.hint || ''}`, trigger: 'blur' }]
+        : []),
+    ],
+  };
+  if (m.appId?.pattern) {
+    r.channelAppId = [
+      { required: true, message: `${m.appId.label}必填`, trigger: 'blur' },
+      { pattern: m.appId.pattern, message: `格式不正确：${m.appId.hint || ''}`, trigger: 'blur' },
+    ];
+  }
+  // 密钥类必填（仅新增时强制；编辑留空沿用原值）
+  for (const f of m.secrets || []) {
+    if (f.required) {
+      r[secretProp(f.key)] = [
+        { required: !editing.value, message: `新增时必须填写「${f.label}」`, trigger: 'blur' },
+      ];
+    }
+  }
+  return r;
+});
 
 async function load() {
   loading.value = true;
@@ -153,9 +192,8 @@ async function load() {
   }
 }
 
-function openCreate() {
-  editing.value = null;
-  Object.assign(form, {
+function blankForm() {
+  return {
     channel: 'wechat',
     name: '',
     mchId: '',
@@ -170,8 +208,14 @@ function openCreate() {
     apiV3Key: '',
     notifyUrl: '',
     remark: '',
-  });
+  };
+}
+
+function openCreate() {
+  editing.value = null;
+  Object.assign(form, blankForm());
   dialogVisible.value = true;
+  nextTick(() => formRef.value?.clearValidate());
 }
 
 function openEdit(row) {
@@ -181,7 +225,7 @@ function openEdit(row) {
     name: row.name,
     mchId: row.mchId,
     channelAppId: row.channelAppId || '',
-    scene: row.scene || 'JSAPI',
+    scene: row.scene || '',
     isSandbox: row.isSandbox,
     priority: row.priority ?? 0,
     certSerialNo: row.certSerialNo || '',
@@ -193,18 +237,28 @@ function openEdit(row) {
     remark: row.remark || '',
   });
   dialogVisible.value = true;
+  nextTick(() => formRef.value?.clearValidate());
+}
+
+/** 切换渠道时：场景重置为该渠道支持的第一个，AppId/证书类字段清空，避免跨渠道残留 */
+async function onChannelChange() {
+  if (!sceneOptions.value.includes(form.scene)) {
+    form.scene = sceneOptions.value[0] || '';
+  }
+  if (!meta.value?.appId) form.channelAppId = '';
 }
 
 async function save() {
-  if (!form.name || !form.mchId) {
-    ElMessage.warning('请填写配置名称与商户号');
+  try {
+    await formRef.value?.validate();
+  } catch {
     return;
   }
   saving.value = true;
   try {
     // 留空的密钥字段不下发，避免覆盖已存配置
     const payload = { ...form };
-    for (const k of ['privateKey', 'platformCert', 'apiV3Key']) {
+    for (const k of ['privateKey', 'platformCert', 'apiV3Key', 'certSerialNo']) {
       if (!payload[k]) delete payload[k];
     }
     if (editing.value) {

@@ -9,6 +9,8 @@ import { ChannelAdapter } from './channel.types';
 import { MockAdapter } from './adapters/mock.adapter';
 import { WechatAdapter } from './adapters/wechat.adapter';
 import { AlipayAdapter } from './adapters/alipay.adapter';
+import { UnionPayAdapter } from './adapters/unionpay.adapter';
+import { validateChannelConfig } from './channel-meta';
 
 /**
  * 渠道工厂：根据渠道 + 场景选出可用配置，构造适配器
@@ -75,6 +77,15 @@ export class ChannelService {
           platformCert: dec(cfg.platformCert),
           isSandbox: cfg.isSandbox,
         });
+      case Channel.UNIONPAY:
+        return new UnionPayAdapter({
+          mchId: cfg.mchId,
+          certSerialNo: cfg.certSerialNo,
+          privateKey: dec(cfg.privateKey),
+          platformCert: dec(cfg.platformCert),
+          isSandbox: cfg.isSandbox,
+          extra: cfg.extra,
+        });
       case Channel.MOCK:
         return new MockAdapter(cfg.mchId, this.prisma);
       default:
@@ -139,6 +150,8 @@ export class ChannelService {
     operator: string;
     ip?: string;
   }) {
+    // 按渠道校验参数合理性（商户号/AppId 格式、必填密钥、场景支持）
+    validateChannelConfig(input.channel, input, true);
     const row = await this.prisma.channelConfig.create({
       data: {
         channel: input.channel,
@@ -193,6 +206,9 @@ export class ChannelService {
   ) {
     const cur = await this.prisma.channelConfig.findUnique({ where: { id: BigInt(id) } });
     if (!cur) throw new BizException(ErrorCode.DATA_NOT_FOUND, '渠道配置不存在');
+
+    // 编辑时只校验「本次有改动」的字段（密钥留空 = 沿用库里已存内容，不做必填拦截）
+    validateChannelConfig(cur.channel, input, false);
 
     await this.prisma.channelConfig.update({
       where: { id: BigInt(id) },
