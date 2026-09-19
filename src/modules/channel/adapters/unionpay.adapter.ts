@@ -172,9 +172,11 @@ export class UnionPayAdapter implements ChannelAdapter {
           channelType: params.tradeType === TradeType.MWEB ? '08' : '07', // 07 PC / 08 手机
           frontUrl: this.frontUrl || params.notifyUrl, // 支付完成后浏览器回跳地址
         });
-        const formHtml = this.buildFormHtml(`${this.gateway}/gateway/api/frontTransReq.do`, data);
+        const action = `${this.gateway}/gateway/api/frontTransReq.do`;
+        const formHtml = this.buildFormHtml(action, data);
         return {
-          payParams: { tradeType: params.tradeType, formHtml, payUrl: `${this.gateway}/gateway/api/frontTransReq.do` },
+          // fields 供业务系统自行渲染自动提交表单（统一 payInfo.type=form），formHtml 保留兼容
+          payParams: { tradeType: params.tradeType, formHtml, payUrl: action, action, method: 'POST', fields: data },
           raw: { orderId: params.payOrderNo },
         };
       }

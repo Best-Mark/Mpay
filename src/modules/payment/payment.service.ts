@@ -11,6 +11,7 @@ import { CryptoUtil } from '../../common/utils/crypto.util';
 import { BizException, assertParam, assert } from '../../common/exceptions/biz.exception';
 import { ErrorCode } from '../../common/constants/error-codes';
 import { Channel, CHANNEL_AUTO, NotifyBizType, PayOrderStatus, TradeType } from '../../common/constants/enums';
+import { normalizePayInfo, PayInfo } from '../channel/channel.types';
 import { CreateOrderDto, QueryOrderDto } from './payment.dto';
 
 /** 超过该分钟数仍处于非终态的订单，主动向渠道查单补偿（防止回调丢失） */
@@ -130,7 +131,7 @@ export class PaymentService {
         ip: clientIp,
       });
 
-      return this.buildOrderView(created, false);
+      return this.buildOrderView(created, false, channelResult.payInfo);
     } catch (e: any) {
       if (e?.code === 'P2002') {
         const dup = await this.prisma.payOrder.findUnique({
@@ -464,7 +465,8 @@ export class PaymentService {
 
   // ==================== 输出视图 ====================
 
-  private buildOrderView(order: any, idempotentHit: boolean) {
+  /** preferredPayInfo：渠道适配器直接给出的统一形态（新渠道推荐提供） */
+  private buildOrderView(order: any, idempotentHit: boolean, preferredPayInfo?: PayInfo) {
     return {
       payOrderNo: order.payOrderNo,
       merchantOrderNo: order.merchantOrderNo,
@@ -487,6 +489,8 @@ export class PaymentService {
       notifyStatus: order.notifyStatus,
       notifyCount: order.notifyCount,
       payParams: order.payParams,
+      /** 统一形态的唤起信息：业务系统按 type 渲染即可，新增渠道无需改渲染逻辑 */
+      payInfo: normalizePayInfo(order.tradeType, order.payParams, preferredPayInfo),
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
       idempotentHit,

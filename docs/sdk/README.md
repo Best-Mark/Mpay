@@ -33,6 +33,38 @@ const { channels } = await client.listChannels();
 | Python | `client.list_channels()` |
 | Go | `client.ListChannels()` |
 
+### 下单返回：统一 `payInfo`（按 `type` 渲染，别用渠道 if-else）
+
+下单 / 查单返回里除了渠道原始的 `payParams`，还带一份**与渠道无关**的 `payInfo`：
+
+```json
+{ "type": "qrcode", "codeUrl": "weixin://wxpay/bizpayurl?...", "raw": { ... } }
+```
+
+| `type` | 含义 | 关键字段 | 前端动作 |
+| --- | --- | --- | --- |
+| `qrcode` | 扫码支付 | `codeUrl` | 用 `codeUrl` 生成二维码展示 |
+| `jsapi` | 网页内唤起 | `params` | 微信 JSAPI：`params` 直接传给 `WeixinJSBridge` / JSSDK |
+| `app` | App 内唤起 | `params` | 把 `params` 交给对应 App SDK |
+| `redirect` | 跳转收银台 | `url` | `location.href = url`（PC/H5） |
+| `form` | 网关表单 | `action` / `method` / `fields` | 自动 POST 提交（网银 / 银联前台交易） |
+| `none` | 无需前端动作 | — | 条码付等已扣款场景，等异步通知即可 |
+
+渲染模板（各语言通用思路）：
+
+```
+switch (payInfo.type) {
+  case 'qrcode':   渲染二维码(payInfo.codeUrl); break;
+  case 'jsapi':    唤起JSAPI(payInfo.params);   break;
+  case 'app':      唤起App(payInfo.params);     break;
+  case 'redirect': 跳转(payInfo.url);           break;
+  case 'form':     自动提交表单(payInfo.action, payInfo.method, payInfo.fields); break;
+  default:         // none / 未知形态：轮询查单等待结果，仍可用 payInfo.raw 自行兜底
+}
+```
+
+未知 `type` 时**不要报错**，走 `default` 轮询查单 + `payInfo.raw` 兜底——这样即使将来出现新形态，老版本业务也不会崩。
+
 **向前兼容约定**（平台侧承诺，SDK 因此在可预期范围内永不失效）：
 
 1. 路径 `/api/v1/open/...` 与响应包裹 `{ code, message, data, traceId }` 长期不变

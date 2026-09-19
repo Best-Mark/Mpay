@@ -209,6 +209,12 @@
         平台后续新增渠道（如京东支付、数字人民币）时<strong>无需升级 SDK</strong>；需要渲染收银台可调用渠道发现接口
         <code>POST /api/v1/open/pay/channels</code> 动态获取。
       </p>
+      <p>
+        下单结果除渠道原始的 <code>payParams</code> 外，还返回<strong>与渠道无关</strong>的 <code>payInfo</code>，业务侧按
+        <code>type</code> 渲染即可：<code>qrcode</code> 出码、<code>jsapi</code>/<code>app</code> 用
+        <code>params</code> 唤起、<code>redirect</code> 跳转 <code>url</code>、<code>form</code> 自动提交
+        <code>action+fields</code>、<code>none</code> 等待回调。遇到未知 <code>type</code> 请走轮询查单兜底，不要报错。
+      </p>
       <div class="sdk-actions">
         <a
           v-for="s in sdks"
