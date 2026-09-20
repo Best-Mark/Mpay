@@ -78,6 +78,12 @@
         <el-form-item label="单笔限额(元)">
           <el-input v-model="approveForm.limitPerOrder" placeholder="0 表示不限" />
         </el-form-item>
+        <el-form-item label="单日累计(元)">
+          <el-input v-model="approveForm.limitDaily" placeholder="0 表示不限" />
+        </el-form-item>
+        <el-form-item label="单月累计(元)">
+          <el-input v-model="approveForm.limitMonthly" placeholder="0 表示不限" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="approveVisible = false">取消</el-button>
@@ -128,7 +134,7 @@ const query = reactive({ status: '', keyword: '', page: 1, pageSize: 20 });
 const approveVisible = ref(false);
 const rejectVisible = ref(false);
 const secretVisible = ref(false);
-const approveForm = ref({ payNotifyUrl: '', refundNotifyUrl: '', limitPerOrder: '' });
+const approveForm = ref({ payNotifyUrl: '', refundNotifyUrl: '', limitPerOrder: '', limitDaily: '', limitMonthly: '' });
 const rejectReason = ref('');
 const current = ref({});
 const secret = ref({ appId: '', appSecret: '' });
@@ -160,7 +166,7 @@ function fmt(t) {
 
 function openApprove(row) {
   current.value = row;
-  approveForm.value = { payNotifyUrl: row.apps.length ? '' : '', refundNotifyUrl: '', limitPerOrder: '' };
+  approveForm.value = { payNotifyUrl: row.apps.length ? '' : '', refundNotifyUrl: '', limitPerOrder: '', limitDaily: '', limitMonthly: '' };
   approveVisible.value = true;
 }
 
@@ -172,6 +178,8 @@ async function submitApprove() {
       payNotifyUrl: approveForm.value.payNotifyUrl,
       refundNotifyUrl: approveForm.value.refundNotifyUrl || undefined,
       limitPerOrder: Number(approveForm.value.limitPerOrder || 0),
+      limitDaily: Number(approveForm.value.limitDaily || 0),
+      limitMonthly: Number(approveForm.value.limitMonthly || 0),
     });
     approveVisible.value = false;
     if (r.appSecret) {

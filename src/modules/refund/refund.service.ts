@@ -90,7 +90,7 @@ export class RefundService {
       });
 
       // 5. 调渠道退款
-      const adapter = await this.channelService.getAdapter(order.channel);
+      const adapter = await this.channelService.getAdapterForApp(order.channel, appId);
       const notifyUrl = dto.notifyUrl || (await this.resolveNotifyUrl(appId));
       const r = await adapter.refund({
         refundNo,
@@ -212,7 +212,7 @@ export class RefundService {
     if ([RefundStatus.SUCCESS, RefundStatus.FAILED, RefundStatus.CLOSED].includes(refund.status as RefundStatus)) return;
 
     try {
-      const adapter = await this.channelService.getAdapter(refund.channel);
+      const adapter = await this.channelService.getAdapterForApp(refund.channel, refund.appId);
       const r = await adapter.queryRefund({
         refundNo,
         channelRefundId: refund.channelRefundId || undefined,
@@ -357,7 +357,7 @@ export class RefundService {
       throw new BizException(ErrorCode.REFUND_STATUS_INVALID, '仅失败/关闭的退款单可重试');
     }
     const order = await this.prisma.payOrder.findUnique({ where: { payOrderNo: refund.payOrderNo } });
-    const adapter = await this.channelService.getAdapter(refund.channel);
+    const adapter = await this.channelService.getAdapterForApp(refund.channel, refund.appId);
     const r = await adapter.refund({
       refundNo: refund.refundNo,
       payOrderNo: refund.payOrderNo,

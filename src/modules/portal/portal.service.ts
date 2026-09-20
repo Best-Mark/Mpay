@@ -216,7 +216,15 @@ export class PortalService {
    */
   async approve(
     id: number,
-    input: { payNotifyUrl?: string; refundNotifyUrl?: string; allowChannels?: string[]; limitPerOrder?: number; remark?: string },
+    input: {
+      payNotifyUrl?: string;
+      refundNotifyUrl?: string;
+      allowChannels?: string[];
+      limitPerOrder?: number;
+      limitDaily?: number;
+      limitMonthly?: number;
+      remark?: string;
+    },
     operator: string,
     ip?: string,
   ): Promise<{ appId?: string; appSecret?: string }> {
@@ -246,6 +254,8 @@ export class PortalService {
         refundNotifyUrl: input.refundNotifyUrl,
         allowChannels: input.allowChannels,
         limitPerOrder: input.limitPerOrder,
+        limitDaily: input.limitDaily,
+        limitMonthly: input.limitMonthly,
         remark: input.remark || `自助注册：${user.email}`,
         operator,
         ip,

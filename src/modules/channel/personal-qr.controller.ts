@@ -54,7 +54,8 @@ export class PersonalQrController {
     }
 
     const codes = await this.qrService.pickAll(order.appId);
-    const amount = Number(order.amount).toFixed(2);
+    // 开启「唯一金额识别码」后，应付金额 = 订单金额 + 分位识别码（见 adapter.createPayment）
+    const amount = ((order.payParams as any)?.qrAmount || Number(order.amount).toFixed(2)) as string;
     const remark = payOrderNo.slice(-6);
     const status = order.status;
     const claimed = !!(order.extra as any)?.claim;

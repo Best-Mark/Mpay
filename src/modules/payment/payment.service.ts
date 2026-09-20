@@ -13,7 +13,7 @@ import { ErrorCode } from '../../common/constants/error-codes';
 import { Channel, CHANNEL_AUTO, NotifyBizType, PayOrderStatus, TradeType } from '../../common/constants/enums';
 import { normalizePayInfo, PayInfo } from '../channel/channel.types';
 import { OpenApiOrderView } from './openapi-contract';
-import { CreateOrderDto, QueryOrderDto } from './payment.dto';
+import { CreateOrderDto, QueryOrderDto, ConfirmPaidDto } from './payment.dto';
 
 /** 超过该分钟数仍处于非终态的订单，主动向渠道查单补偿（防止回调丢失） */
 const PAYING_QUERY_DELAY_MINUTES = 5;
@@ -30,6 +30,69 @@ export class PaymentService {
     private readonly opLog: OperationLogService,
   ) {}
 
+  // ==================== 限额校验 ====================
+
+  /**
+   * 累计限额校验（单日 / 单月），0 表示不限
+   *
+   * 统计口径：只算「在途（CREATED / PAYING）+ 已成功（SUCCESS）」的订单金额。
+   * - 不能只统计已支付：先囤一批未支付订单再集中付款就能顶穿额度；
+   * - 也不能把历史废单全算进来：已关闭 / 失败的订单会长期占额，误伤正常下单。
+   *
+   * 并发：先对 merchant_app 行加排他锁，让同一业务系统的额度校验串行化，
+   * 避免两笔并发读到同一个旧累计值而双双通过。锁在校验结束即释放，不与渠道 IO 争锁。
+   */
+  private async assertCumulativeLimit(
+    appId: string,
+    amount: string,
+    limitDaily: string | number,
+    limitMonthly: string | number,
+  ): Promise<void> {
+    const daily = Money.D(limitDaily);
+    const monthly = Money.D(limitMonthly);
+    if (daily.lte(0) && monthly.lte(0)) return;
+
+    const now = new Date();
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const baseWhere = {
+      appId,
+      status: { in: [PayOrderStatus.CREATED, PayOrderStatus.PAYING, PayOrderStatus.SUCCESS] },
+    };
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM merchant_app WHERE app_id = ${appId} FOR UPDATE`;
+
+      if (daily.gt(0)) {
+        const agg = await tx.payOrder.aggregate({
+          _sum: { amount: true },
+          where: { ...baseWhere, createdAt: { gte: dayStart } },
+        });
+        const used = Money.D(agg._sum.amount?.toString() || '0').plus(amount);
+        if (used.gt(daily)) {
+          throw new BizException(
+            ErrorCode.ORDER_AMOUNT_EXCEED_LIMIT,
+            `当日累计限额 ${daily.toFixed(2)} 元，计入本单后将达 ${used.toFixed(2)} 元`,
+          );
+        }
+      }
+
+      if (monthly.gt(0)) {
+        const agg = await tx.payOrder.aggregate({
+          _sum: { amount: true },
+          where: { ...baseWhere, createdAt: { gte: monthStart } },
+        });
+        const used = Money.D(agg._sum.amount?.toString() || '0').plus(amount);
+        if (used.gt(monthly)) {
+          throw new BizException(
+            ErrorCode.ORDER_AMOUNT_EXCEED_LIMIT,
+            `当月累计限额 ${monthly.toFixed(2)} 元，计入本单后将达 ${used.toFixed(2)} 元`,
+          );
+        }
+      }
+    });
+  }
+
   // ==================== 统一下单 ====================
 
   async createOrder(appId: string, dto: CreateOrderDto, clientIp?: string) {
@@ -44,12 +107,18 @@ export class PaymentService {
       requested: dto.channel,
       allowChannels: app.allowChannels,
       scene: dto.tradeType,
+      legalEntityId: app.legalEntityId,
+      category: app.category,
     });
 
     const amount = Money.round(dto.amount, 2);
     if (Money.D(app.limitPerOrder).gt(0) && amount.gt(Money.D(app.limitPerOrder))) {
       throw new BizException(ErrorCode.ORDER_AMOUNT_EXCEED_LIMIT, `单笔限额 ${app.limitPerOrder} 元`);
     }
+
+    // 累计限额（日 / 月）：0 表示不限。必须在调渠道下单之前拦截，
+    // 否则超限会在渠道侧留下「有单、本库无单」的悬挂单，污染对账。
+    await this.assertCumulativeLimit(app.appId, amount.toString(), app.limitDaily, app.limitMonthly);
 
     // JSAPI 必须传 openid
     if (channel === Channel.WECHAT && dto.tradeType === TradeType.JSAPI && !dto.payerId) {
@@ -74,7 +143,11 @@ export class PaymentService {
     // 3. 生成订单号并调渠道下单
     const payOrderNo = OrderNoUtil.payOrderNo();
     const expireAt = new Date(Date.now() + (dto.expireMinutes || 30) * 60 * 1000);
-    const adapter = await this.channelService.getAdapter(channel);
+    // 适配器选择同样受主体 / 类目约束：确保落到本主体已报备类目的商户号上
+    const adapter = await this.channelService.getAdapter(channel, undefined, {
+      legalEntityId: app.legalEntityId,
+      category: app.category,
+    });
 
     let channelResult: any;
     try {
@@ -188,7 +261,7 @@ export class PaymentService {
     const order = await this.prisma.payOrder.findUnique({ where: { payOrderNo } });
     if (!order) return;
     try {
-      const adapter = await this.channelService.getAdapter(order.channel);
+      const adapter = await this.channelService.getAdapterForApp(order.channel, order.appId);
       const r = await adapter.queryPayment({ payOrderNo });
       if (!r.exist) {
         if (order.status === PayOrderStatus.CREATED || order.status === PayOrderStatus.PAYING) {
@@ -240,7 +313,7 @@ export class PaymentService {
     }
 
     try {
-      const adapter = await this.channelService.getAdapter(order.channel);
+      const adapter = await this.channelService.getAdapterForApp(order.channel, order.appId);
       await adapter.closePayment({ payOrderNo: order.payOrderNo });
     } catch (e: any) {
       this.logger.warn(`[closeOrder] 渠道关单失败 ${order.payOrderNo}: ${e.message}`);
@@ -327,6 +400,83 @@ export class PaymentService {
     return { updated: true, order: updated };
   }
 
+  /**
+   * 商户自助确认到账（开放接口，个人收款码专用）
+   *
+   * 为什么只允许 personal_qr：有官方回调的渠道，真实支付状态以渠道为准，
+   * 人工置成功等于可以凭空把没收到钱的订单变成已支付 —— 直接资损。
+   *
+   * 防资损设计：
+   *  1) 必须传实际到账金额 paidAmount
+   *  2) 与订单应付金额（开启唯一金额识别码时为 qrAmount）不一致默认拒绝
+   *  3) 显式 allowDiff=true 才放行，且差异写入 channelRaw 留痕
+   */
+  async confirmPaidByMerchant(appId: string, dto: ConfirmPaidDto) {
+    assertParam(!!dto.payOrderNo || !!dto.merchantOrderNo, 'payOrderNo 与 merchantOrderNo 至少传一个');
+    assertParam(!!dto.paidAmount && Number(dto.paidAmount) > 0, 'paidAmount 必填且必须大于 0（实际到账金额）');
+
+    const order = dto.payOrderNo
+      ? await this.prisma.payOrder.findUnique({ where: { payOrderNo: dto.payOrderNo } })
+      : await this.prisma.payOrder.findUnique({
+          where: { appId_merchantOrderNo: { appId, merchantOrderNo: dto.merchantOrderNo as string } },
+        });
+    if (!order) throw new BizException(ErrorCode.ORDER_NOT_FOUND);
+    if (order.appId !== appId) throw new BizException(ErrorCode.PARAM_ERROR, '订单不属于当前应用');
+
+    if (order.channel !== Channel.PERSONAL_QR) {
+      throw new BizException(
+        ErrorCode.PARAM_ERROR,
+        `订单渠道为 ${order.channel}，该渠道有官方回调，不允许人工确认到账`,
+      );
+    }
+    if ([PayOrderStatus.SUCCESS, PayOrderStatus.CLOSED, PayOrderStatus.REVOKED].includes(order.status as any)) {
+      throw new BizException(ErrorCode.ORDER_STATUS_INVALID, `订单已处于终态 ${order.status}，无需确认`);
+    }
+
+    // 应付金额：开启「唯一金额识别码」后为 qrAmount（含分位识别码）
+    const payable = (order.payParams as any)?.qrAmount || Money.format(order.amount);
+    const paidCents = Math.round(Number(dto.paidAmount) * 100);
+    const payableCents = Math.round(Number(payable) * 100);
+    const diff = paidCents - payableCents;
+    if (diff !== 0 && !dto.allowDiff) {
+      throw new BizException(
+        ErrorCode.PARAM_ERROR,
+        `到账金额 ${Money.format(dto.paidAmount)} 元与应付 ${payable} 元不一致（差 ${(diff / 100).toFixed(2)} 元）；确属少付/多付请显式传 allowDiff=true`,
+      );
+    }
+    if (diff !== 0) {
+      this.logger.warn(
+        `[confirm-paid] 金额差异放行 ${order.payOrderNo} 应付=${payable} 实收=${Money.format(dto.paidAmount)} appId=${appId}`,
+      );
+    }
+
+    const paidAt = dto.paidAt ? new Date(dto.paidAt) : new Date();
+    if (Number.isNaN(paidAt.getTime())) throw new BizException(ErrorCode.PARAM_ERROR, 'paidAt 不是合法时间');
+
+    const res = await this.markPaid(order.payOrderNo, {
+      channelTxnId: dto.channelTxnId || `QRSELF${Date.now()}${Math.random().toString(16).slice(2, 8)}`,
+      payerId: dto.payerAccount || order.payerId || undefined,
+      paidAmount: Money.format(dto.paidAmount),
+      paidAt,
+      raw: {
+        source: 'merchant-confirm',
+        appId,
+        remark: dto.remark,
+        diff: diff !== 0 ? Money.format(diff / 100) : undefined,
+      },
+    });
+
+    this.logger.log(
+      `[confirm-paid] 商户自助确认到账 ${order.payOrderNo} 实收=${Money.format(dto.paidAmount)} appId=${appId} updated=${res.updated}`,
+    );
+    return {
+      payOrderNo: order.payOrderNo,
+      merchantOrderNo: order.merchantOrderNo,
+      status: res.order?.status || PayOrderStatus.SUCCESS,
+      updated: res.updated,
+    };
+  }
+
   // ==================== 定时任务 ====================
 
   /** 关闭超时未支付订单（每分钟） */
@@ -347,7 +497,7 @@ export class PaymentService {
         const fresh = await this.prisma.payOrder.findUnique({ where: { payOrderNo: o.payOrderNo } });
         if (!fresh || fresh.status !== PayOrderStatus.CREATED) continue;
         try {
-          const adapter = await this.channelService.getAdapter(o.channel);
+          const adapter = await this.channelService.getAdapterForApp(o.channel, o.appId);
           await adapter.closePayment({ payOrderNo: o.payOrderNo });
         } catch {
           /* 渠道关单失败不阻断 */

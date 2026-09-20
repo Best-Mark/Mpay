@@ -33,9 +33,22 @@ export class NotifyController {
     let adapter: any = null;
 
     try {
-      adapter = await this.channelService.getAdapter(channel);
-      parsed = await adapter.parseNotify({ headers: req.headers, rawBody, query: req.query as any });
-      signOk = true;
+      // 多主体并存时，回调到达还不知道属于哪个主体：按优先级逐个尝试验签，命中即用。
+      // 只试默认配置会让非默认商户号的回调全部验签失败 —— 后果是「用户已付款、订单不置成功」。
+      const candidates = await this.channelService.getAdapters(channel);
+      if (!candidates.length) throw new Error(`渠道 ${channel} 无可用配置，无法验签`);
+      let lastErr: any = null;
+      for (const a of candidates) {
+        try {
+          parsed = await a.parseNotify({ headers: req.headers, rawBody, query: req.query as any });
+          adapter = a;
+          signOk = true;
+          break;
+        } catch (e: any) {
+          lastErr = e;
+        }
+      }
+      if (!adapter) throw lastErr || new Error('验签失败：无可用渠道配置');
     } catch (e: any) {
       this.logger.error(`[notify:${channel}] 解析/验签失败: ${e.message}`);
       await this.log(channel, type, null, null, false, 'FAILED', rawBody, e.message);

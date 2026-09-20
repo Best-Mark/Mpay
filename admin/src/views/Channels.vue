@@ -16,6 +16,27 @@
         </template>
       </el-table-column>
       <el-table-column prop="name" label="配置名称" min-width="150" />
+      <el-table-column label="归属主体" min-width="150" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span :style="{ color: row.legalEntityId ? '' : '#e6a23c' }">{{ entityName(row.legalEntityId) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="已报备类目" min-width="170">
+        <template #default="{ row }">
+          <template v-if="(row.categories || []).length">
+            <el-tag
+              v-for="c in row.categories"
+              :key="c"
+              size="small"
+              :type="isRiskyCategory(c) ? 'danger' : 'info'"
+              style="margin-right: 4px"
+            >
+              {{ bizCategoryLabel(c) }}
+            </el-tag>
+          </template>
+          <span v-else style="color: #e6a23c">未设置（不校验）</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="mchId" label="商户号" width="170" />
       <el-table-column prop="scene" label="场景" width="90" />
       <el-table-column label="环境" width="90">
@@ -67,6 +88,18 @@
         </el-form-item>
         <el-form-item label="配置名称" prop="name">
           <el-input v-model="form.name" placeholder="如：微信-主商户" />
+        </el-form-item>
+        <el-form-item label="归属主体">
+          <el-select v-model="form.legalEntityId" clearable filterable placeholder="未归属（不参与主体校验）" style="width: 100%">
+            <el-option v-for="e in entityOptions" :key="e.id" :label="e.name" :value="e.id" />
+          </el-select>
+          <div style="color: #8492a6; font-size: 12px">一个商户号只能归属一个主体，跨主体收款属二清</div>
+        </el-form-item>
+        <el-form-item label="已报备类目">
+          <el-select v-model="form.categories" multiple filterable placeholder="留空=不限制" style="width: 100%">
+            <el-option v-for="c in BIZ_CATEGORIES" :key="c.value" :label="c.label" :value="c.value" />
+          </el-select>
+          <div style="color: #8492a6; font-size: 12px">须与支付机构侧报备的类目一致；高风险类目建议单独进件</div>
         </el-form-item>
         <el-form-item :label="meta?.mchId?.label || '商户号'" prop="mchId">
           <el-input v-model="form.mchId" :placeholder="meta?.mchId?.placeholder || ''" />
@@ -127,6 +160,7 @@ import { ref, reactive, computed, onMounted, nextTick } from 'vue';
 import { ElMessage } from 'element-plus';
 import { api } from '../api';
 import { CHANNEL_META, CHANNEL_OPTIONS, PLANNED_CHANNEL_OPTIONS, SCENE_OPTIONS, channelName } from '../constants/channels';
+import { BIZ_CATEGORIES, bizCategoryLabel, isRiskyCategory } from '../constants/biz-category';
 
 const list = ref([]);
 const loading = ref(false);
@@ -137,6 +171,8 @@ const formRef = ref(null);
 const form = reactive({
   channel: 'wechat',
   name: '',
+  legalEntityId: null,
+  categories: [],
   mchId: '',
   channelAppId: '',
   scene: 'JSAPI',
@@ -152,6 +188,20 @@ const form = reactive({
 });
 
 const channelOptions = CHANNEL_OPTIONS;
+
+/** 法人主体下拉：主体决定这个商户号能被哪些业务系统使用 */
+const entityOptions = ref([]);
+async function loadEntities() {
+  try {
+    entityOptions.value = await api.legalEntities();
+  } catch {
+    entityOptions.value = [];
+  }
+}
+function entityName(id) {
+  if (!id) return '未归属';
+  return entityOptions.value.find((e) => e.id === id)?.name || `#${id}`;
+}
 const plannedOptions = PLANNED_CHANNEL_OPTIONS;
 const meta = computed(() => CHANNEL_META[form.channel]);
 const sceneOptions = computed(() => meta.value?.scenes || []);
@@ -205,6 +255,8 @@ function blankForm() {
   return {
     channel: 'wechat',
     name: '',
+    legalEntityId: null,
+    categories: [],
     mchId: '',
     channelAppId: '',
     scene: 'JSAPI',
@@ -232,6 +284,8 @@ function openEdit(row) {
   Object.assign(form, {
     channel: row.channel,
     name: row.name,
+    legalEntityId: row.legalEntityId ?? null,
+    categories: row.categories || [],
     mchId: row.mchId,
     channelAppId: row.channelAppId || '',
     scene: row.scene || '',
@@ -296,5 +350,8 @@ async function toggle(row) {
   }
 }
 
-onMounted(load);
+onMounted(async () => {
+  await loadEntities();
+  load();
+});
 </script>

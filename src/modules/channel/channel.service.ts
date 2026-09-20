@@ -4,7 +4,8 @@ import { OperationLogService } from '../../common/log/operation-log.service';
 import { CryptoUtil } from '../../common/utils/crypto.util';
 import { BizException } from '../../common/exceptions/biz.exception';
 import { ErrorCode } from '../../common/constants/error-codes';
-import { Channel, CHANNEL_AUTO } from '../../common/constants/enums';
+import { Channel, CHANNEL_AUTO, BIZ_CATEGORY_LABEL } from '../../common/constants/enums';
+import { SystemConfigService } from '../../common/config/system-config.service';
 import { ChannelAdapter } from './channel.types';
 import { MockAdapter } from './adapters/mock.adapter';
 import { PersonalQrAdapter } from './adapters/personal-qr.adapter';
@@ -12,6 +13,35 @@ import { WechatAdapter } from './adapters/wechat.adapter';
 import { AlipayAdapter } from './adapters/alipay.adapter';
 import { UnionPayAdapter } from './adapters/unionpay.adapter';
 import { AVAILABLE_CHANNELS, CHANNEL_META, validateChannelConfig } from './channel-meta';
+
+/** 渠道选择范围：场景 + 法人主体 + 经营类目 */
+export interface ChannelScope {
+  scene?: string | null;
+  legalEntityId?: bigint | number | null;
+  category?: string | null;
+}
+
+/**
+ * 单个渠道配置是否落在指定范围内
+ *
+ * 兼容存量：配置未归属主体（legalEntityId 为空）或未填类目时放行；
+ * 一旦两边都有值就必须一致 —— 这条边界就是「跨主体收款＝二清」的硬防线。
+ */
+function matchScope(
+  row: { scene?: string | null; legalEntityId?: bigint | null; categories?: unknown },
+  scope: ChannelScope,
+): boolean {
+  const { scene, legalEntityId, category } = scope;
+  if (scene && row.scene && row.scene !== scene) return false;
+  if (legalEntityId != null && row.legalEntityId != null && row.legalEntityId !== BigInt(legalEntityId)) {
+    return false;
+  }
+  if (category) {
+    const cats = Array.isArray(row.categories) ? (row.categories as string[]) : [];
+    if (cats.length > 0 && !cats.includes(category)) return false;
+  }
+  return true;
+}
 
 /**
  * 渠道工厂：根据渠道 + 场景选出可用配置，构造适配器
@@ -26,14 +56,18 @@ export class ChannelService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly opLog: OperationLogService,
+    private readonly cfg: SystemConfigService,
   ) {}
 
   /**
    * 渠道路由：把「业务系统请求的渠道」解析为真正要走的渠道
    *
    * 规则：
-   *  1. 显式指定（非 auto）→ 直接采用，但必须在商户已开通渠道内
-   *  2. auto / 不传 → 按「已接入渠道 ∩ 商户已开通 ∩ 场景匹配」，取 priority 最高的配置
+   *  1. 显式指定（非 auto）→ 采用，但必须满足「已开通渠道 ∩ 同主体 ∩ 类目已报备」
+   *  2. auto / 不传 → 按上述条件 + 场景匹配，取 priority 最高的配置
+   *
+   * 主体与类目是合规硬约束：跨主体收款＝无证二次清算（二清）。
+   * 校验放在路由层而不是靠人工配置，误配就不可能发生。
    *
    * 设计目的：新增渠道只需在后台配置 + 服务端接入适配器，业务系统 / SDK 无需升级改造。
    */
@@ -41,13 +75,23 @@ export class ChannelService {
     requested?: string | null;
     allowChannels?: string[] | null;
     scene?: string | null;
+    legalEntityId?: bigint | number | null;
+    category?: string | null;
   }): Promise<string> {
-    const { requested, allowChannels, scene } = params;
+    const { requested, allowChannels, scene, legalEntityId, category } = params;
     const allow = allowChannels && allowChannels.length ? allowChannels : null;
+    const scope: ChannelScope = { scene, legalEntityId, category };
 
     if (requested && requested !== CHANNEL_AUTO) {
       if (allow && !allow.includes(requested)) {
         throw new BizException(ErrorCode.CHANNEL_NOT_ALLOWED, `应用未开通渠道 ${requested}`);
+      }
+      // 显式指定同样要过主体 / 类目校验，否则「手动指定渠道」就能绕过隔离
+      if (!(await this.hasScopedConfig(requested, scope))) {
+        throw new BizException(
+          ErrorCode.CHANNEL_NOT_ALLOWED,
+          `渠道 ${requested} 下没有匹配该主体${category ? `与类目「${BIZ_CATEGORY_LABEL[category] || category}」` : ''}的商户号`,
+        );
       }
       return requested;
     }
@@ -62,7 +106,7 @@ export class ChannelService {
     const hit = rows
       .filter((r) => AVAILABLE_CHANNELS.includes(r.channel))
       .filter((r) => !allow || allow.includes(r.channel))
-      .filter((r) => !scene || !r.scene || r.scene === scene)[0];
+      .filter((r) => matchScope(r, scope))[0];
 
     if (!hit) {
       throw new BizException(
@@ -71,6 +115,12 @@ export class ChannelService {
       );
     }
     return hit.channel;
+  }
+
+  /** 该渠道下是否存在满足「场景 + 主体 + 类目」的可用配置（显式指定渠道时的合规校验） */
+  private async hasScopedConfig(channel: string, scope: ChannelScope): Promise<boolean> {
+    const rows = await this.prisma.channelConfig.findMany({ where: { channel, enabled: true } });
+    return rows.some((r) => matchScope(r, scope));
   }
 
   /** 列出该应用可下单的渠道（供业务系统动态渲染收银台，不必写死在 SDK 里） */
@@ -87,10 +137,10 @@ export class ChannelService {
    * 获取渠道适配器
    * 安全策略：DEFAULT_CHANNEL_MODE=sandbox 时强制使用 Mock，避免未配置密钥时误触真实资金
    */
-  async getAdapter(channel: string, scene?: string): Promise<ChannelAdapter> {
-    // 个人收款码不涉及渠道密钥与资金 API，沙箱模式下也走真实适配器（便于联调展示与人工确认）
+  async getAdapter(channel: string, scene?: string, scope?: ChannelScope): Promise<ChannelAdapter> {
+    // 个人收款码不涉及渠道密钥与资金 API，沙箱模式下也走真实适配器（便于联调展示与到账监控）
     if (channel === Channel.PERSONAL_QR) {
-      return new PersonalQrAdapter('PERSONAL_QR', this.prisma);
+      return new PersonalQrAdapter('PERSONAL_QR', this.prisma, this.cfg);
     }
 
     const forceMock = (process.env.DEFAULT_CHANNEL_MODE || 'sandbox') === 'sandbox';
@@ -99,21 +149,109 @@ export class ChannelService {
       return new MockAdapter('MOCK_MCH_001', this.prisma);
     }
 
-    const cacheKey = `${channel}:${scene || ''}`;
+    // 缓存键必须含主体与类目：否则多主体并存时会命中别的主体缓存，串到错误商户号
+    const cacheKey = `${channel}:${scene || ''}:${scope?.legalEntityId ?? ''}:${scope?.category ?? ''}`;
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expireAt > Date.now()) return cached.adapter;
 
     const rows = await this.prisma.channelConfig.findMany({
-      where: { channel, enabled: true, ...(scene ? { scene } : {}) },
+      where: {
+        channel,
+        enabled: true,
+        ...(scene ? { scene } : {}),
+        ...(scope?.legalEntityId != null ? { legalEntityId: BigInt(scope.legalEntityId) } : {}),
+      },
       orderBy: { priority: 'desc' },
     });
-    if (!rows.length) throw new BizException(ErrorCode.CHANNEL_NOT_FOUND, `渠道 ${channel} 无可用配置`);
-
-    const cfg = rows[0];
-    if (channel === Channel.PERSONAL_QR) return new PersonalQrAdapter(cfg.mchId, this.prisma);
+    // 主体 / 类目过滤：确保最终拿到的是本主体已报备类目下的商户号
+    const cfg = rows.filter((r) => matchScope(r, scope || {}))[0];
+    if (!cfg) throw new BizException(ErrorCode.CHANNEL_NOT_FOUND, `渠道 ${channel} 无可用配置`);
+    if (channel === Channel.PERSONAL_QR) return new PersonalQrAdapter(cfg.mchId, this.prisma, this.cfg);
     if (cfg.isSandbox) return new MockAdapter(cfg.mchId, this.prisma);
 
     const adapter = this.build(channel, cfg);
+    this.cache.set(cacheKey, { adapter, expireAt: Date.now() + this.CACHE_TTL });
+    return adapter;
+  }
+
+  /**
+   * 按业务系统取适配器：自动带上该 AppId 的主体与类目约束
+   *
+   * 退款 / 订单查询 / 关单都必须走这里，不能只用渠道名取适配器 ——
+   * 多主体并存时只按渠道取会拿到别的主体商户号，签名不匹配直接失败。
+   */
+  async getAdapterForApp(channel: string, appId: string, scene?: string): Promise<ChannelAdapter> {
+    const app = await this.prisma.merchantApp.findUnique({
+      where: { appId },
+      select: { legalEntityId: true, category: true },
+    });
+    return this.getAdapter(channel, scene, {
+      legalEntityId: app?.legalEntityId ?? null,
+      category: app?.category ?? null,
+    });
+  }
+
+  /**
+   * 取某渠道下所有启用的适配器（按优先级）
+   *
+   * 回调验签专用：通知到达时还不知道属于哪个主体，只能逐个尝试验签。
+   * 只试默认配置会让非默认商户号的回调全部验签失败 ——
+   * 后果是「用户已付款、订单不置成功」，属严重故障。
+   */
+  async getAdapters(channel: string): Promise<ChannelAdapter[]> {
+    if (channel === Channel.PERSONAL_QR) {
+      return [new PersonalQrAdapter('PERSONAL_QR', this.prisma, this.cfg)];
+    }
+    const forceMock = (process.env.DEFAULT_CHANNEL_MODE || 'sandbox') === 'sandbox';
+    if (forceMock && channel !== Channel.MOCK) return [new MockAdapter('MOCK_MCH_001', this.prisma)];
+
+    const rows = await this.prisma.channelConfig.findMany({
+      where: { channel, enabled: true },
+      orderBy: { priority: 'desc' },
+    });
+    const out: ChannelAdapter[] = [];
+    for (const cfg of rows) {
+      try {
+        out.push(cfg.isSandbox ? new MockAdapter(cfg.mchId, this.prisma) : this.build(channel, cfg));
+      } catch (e: any) {
+        this.logger.warn(`[channel] ${channel}/${cfg.mchId} 构造适配器失败: ${e.message}`);
+      }
+    }
+    return out;
+  }
+
+  /** 按渠道 + 商户号取适配器（账单上传归属指定商户号时用） */
+  async getAdapterByMchId(channel: string, mchId: string): Promise<ChannelAdapter> {
+    const cfg = await this.prisma.channelConfig.findFirst({
+      where: { channel, mchId, enabled: true },
+      orderBy: { priority: 'desc' },
+    });
+    if (!cfg) throw new BizException(ErrorCode.CHANNEL_NOT_FOUND, `渠道 ${channel} 下无商户号 ${mchId} 的可用配置`);
+    return this.getAdapterByConfigId(cfg.id);
+  }
+
+  /**
+   * 按配置 ID 精确取适配器（账单遍历专用）
+   *
+   * 不能用 getAdapter(channel)：它按 priority 只取该渠道「默认」商户号。
+   * 主体隔离后同一渠道会挂多个商户号（不同主体 / 不同类目），只拉默认号的账单
+   * 意味着其余主体的账永远没对过 —— 表面"对账通过"，实际漏了对账，属严重故障。
+   */
+  async getAdapterByConfigId(configId: bigint | number): Promise<ChannelAdapter> {
+    const cfg = await this.prisma.channelConfig.findUnique({ where: { id: BigInt(configId) } });
+    if (!cfg) throw new BizException(ErrorCode.CHANNEL_NOT_FOUND, `渠道配置 ${configId} 不存在`);
+
+    const cacheKey = `cfg:${cfg.id}`;
+    const cached = this.cache.get(cacheKey);
+    if (cached && cached.expireAt > Date.now()) return cached.adapter;
+
+    if (cfg.channel === Channel.PERSONAL_QR) return new PersonalQrAdapter(cfg.mchId, this.prisma, this.cfg);
+
+    const forceMock = (process.env.DEFAULT_CHANNEL_MODE || 'sandbox') === 'sandbox';
+    if (forceMock && cfg.channel !== Channel.MOCK) return new MockAdapter(cfg.mchId, this.prisma);
+    if (cfg.isSandbox) return new MockAdapter(cfg.mchId, this.prisma);
+
+    const adapter = this.build(cfg.channel, cfg);
     this.cache.set(cacheKey, { adapter, expireAt: Date.now() + this.CACHE_TTL });
     return adapter;
   }
@@ -187,6 +325,8 @@ export class ChannelService {
       hasPrivateKey: !!r.privateKey,
       hasPlatformCert: !!r.platformCert,
       hasApiV3Key: !!r.apiV3Key,
+      legalEntityId: r.legalEntityId ? Number(r.legalEntityId) : null,
+      categories: (r.categories as string[]) || [],
       remark: r.remark,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
@@ -208,6 +348,10 @@ export class ChannelService {
     apiV3Key?: string;
     signType?: string;
     notifyUrl?: string;
+    /** 归属法人主体 ID */
+    legalEntityId?: number;
+    /** 该商户号已报备的经营类目 */
+    categories?: string[];
     remark?: string;
     operator: string;
     ip?: string;
@@ -230,6 +374,8 @@ export class ChannelService {
         apiV3Key: input.apiV3Key ? CryptoUtil.encrypt(input.apiV3Key) : null,
         signType: input.signType,
         notifyUrl: input.notifyUrl || this.defaultNotifyUrl(input.channel),
+        legalEntityId: input.legalEntityId ? BigInt(input.legalEntityId) : null,
+        categories: input.categories ?? undefined,
         remark: input.remark,
       },
     });
@@ -261,6 +407,8 @@ export class ChannelService {
       apiV3Key?: string;
       signType?: string;
       notifyUrl?: string;
+      legalEntityId?: number;
+      categories?: string[];
       remark?: string;
       operator: string;
       ip?: string;
@@ -287,6 +435,10 @@ export class ChannelService {
         apiV3Key: input.apiV3Key ? CryptoUtil.encrypt(input.apiV3Key) : undefined,
         signType: input.signType,
         notifyUrl: input.notifyUrl,
+        ...(input.legalEntityId !== undefined
+          ? { legalEntityId: input.legalEntityId ? BigInt(input.legalEntityId) : null }
+          : {}),
+        categories: input.categories,
         remark: input.remark,
       },
     });

@@ -125,6 +125,10 @@
               <el-input v-model="form['alert.silentMinutes']" class="w180" />
               <span class="hint">同类告警在该时间内只发一次</span>
             </el-form-item>
+            <el-form-item label="个人码挂账告警">
+              <el-switch v-model="form['alert.personalQrUnmatched']" />
+              <span class="hint">监控器上报但匹配不到订单时告警</span>
+            </el-form-item>
           </el-form>
           <div class="actions">
             <el-button type="primary" :loading="saving" @click="save('alert')">保存告警配置</el-button>
@@ -169,6 +173,29 @@
           </div>
         </el-card>
       </el-tab-pane>
+      <!-- ===== 个人收款码 ===== -->
+      <el-tab-pane label="个人收款码" name="personalQr">
+        <el-card shadow="never">
+          <template #header>到账监控与自动确认</template>
+          <el-form label-width="150px" class="form">
+            <el-form-item label="到账自动确认">
+              <el-switch v-model="form['personalQr.autoConfirm']" />
+              <span class="hint">关闭后每笔到账都需后台人工绑定确认</span>
+            </el-form-item>
+            <el-form-item label="匹配时间窗(分钟)">
+              <el-input v-model="form['personalQr.matchWindowMinutes']" class="w180" />
+              <span class="hint">在该窗口内的待付订单才参与匹配</span>
+            </el-form-item>
+            <el-form-item label="唯一金额识别码">
+              <el-switch v-model="form['personalQr.uniqueAmount']" />
+              <span class="hint">应付金额加 0.01~0.90 元识别码，到账金额即订单唯一键（付款人多付几分钱）</span>
+            </el-form-item>
+          </el-form>
+          <div class="actions">
+            <el-button type="primary" :loading="saving" @click="save('personalQr')">保存个人码配置</el-button>
+          </div>
+        </el-card>
+      </el-tab-pane>
     </el-tabs>
 
     <el-dialog v-model="mailDialog" title="发送测试邮件" width="420px">
@@ -201,7 +228,7 @@ const mailPassSet = ref(false);
 const mailDialog = ref(false);
 const testTo = ref('');
 
-const GROUPS = ['mail', 'register', 'alert', 'site'];
+const GROUPS = ['mail', 'register', 'alert', 'personalQr', 'site'];
 
 onMounted(load);
 
@@ -229,7 +256,8 @@ async function load() {
 const BOOL_KEYS = [
   'mail.enabled', 'mail.secure',
   'register.enabled', 'register.autoApprove', 'register.verifyEmail', 'register.auditNotify',
-  'alert.notifyDeadLetter', 'alert.reconcileDiff',
+  'alert.notifyDeadLetter', 'alert.reconcileDiff', 'alert.personalQrUnmatched',
+  'personalQr.autoConfirm', 'personalQr.uniqueAmount',
 ];
 function toBool(key, value) {
   return BOOL_KEYS.includes(key) ? value === 'true' : value;

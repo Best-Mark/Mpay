@@ -107,31 +107,61 @@ export class AdminReconcileController {
     });
   }
 
+  @Get('bills/targets')
+  @ApiOperation({ summary: '列出全部需拉账单的渠道商户号（主体隔离后同一渠道会有多个）' })
+  async billTargets() {
+    return this.billService.listBillTargets();
+  }
+
   @Post('bills/fetch')
-  @ApiOperation({ summary: '手动补拉渠道账单' })
-  async fetchBill(@Req() req: Request, @Body() body: { channel: string; billDate: string }) {
+  @ApiOperation({ summary: '手动补拉指定商户号账单（不传 configId 则取该渠道默认商户号）' })
+  async fetchBill(
+    @Req() req: Request,
+    @Body() body: { channel: string; billDate: string; configId?: number },
+  ) {
     return this.billService.fetchAndStore({
       channel: body.channel,
       billDate: body.billDate,
+      configId: body.configId,
+      operator: currentAdmin(req).username,
+    });
+  }
+
+  @Post('bills/fetch-all')
+  @ApiOperation({ summary: '全量补拉：遍历所有渠道商户号下载账单（force=true 时已存在的也刷新）' })
+  async fetchAllBills(
+    @Req() req: Request,
+    @Body() body: { billDate: string; channel?: string; force?: boolean },
+  ) {
+    return this.billService.fetchAllAndStore({
+      billDate: body.billDate,
+      channel: body.channel,
+      force: body.force,
       operator: currentAdmin(req).username,
     });
   }
 
   @Post('bills/upload')
   @ApiOperation({ summary: '手动上传账单文件（CSV 文本），用于渠道下载失败时补拉' })
-  async uploadBill(@Req() req: Request, @Body() body: { channel: string; billDate: string; content: string }) {
+  async uploadBill(
+    @Req() req: Request,
+    @Body() body: { channel: string; billDate: string; content: string; mchId?: string },
+  ) {
     return this.billService.uploadAndStore({
       channel: body.channel,
       billDate: body.billDate,
       content: body.content,
+      mchId: body.mchId,
       operator: currentAdmin(req).username,
     });
   }
 
   @Get('bills')
-  @ApiOperation({ summary: '查询某日账单入库情况' })
-  async billStatus(@Query() q: { channel: string; billDate: string }) {
-    const count = await this.billService.hasBill(q.channel, q.billDate);
-    return { channel: q.channel, billDate: q.billDate, count };
+  @ApiOperation({ summary: '查询某日账单入库情况（指定 mchId 时按商户号统计）' })
+  async billStatus(@Query() q: { channel: string; billDate: string; mchId?: string }) {
+    const count = q.mchId
+      ? await this.billService.hasBillForMch(q.channel, q.mchId, q.billDate)
+      : await this.billService.hasBill(q.channel, q.billDate);
+    return { channel: q.channel, mchId: q.mchId || 'ALL', billDate: q.billDate, count };
   }
 }

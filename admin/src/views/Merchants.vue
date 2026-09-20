@@ -19,6 +19,21 @@
       <el-table-column prop="limitPerOrder" label="单笔限额" width="100" align="right">
         <template #default="{ row }">{{ Number(row.limitPerOrder) > 0 ? row.limitPerOrder : '不限' }}</template>
       </el-table-column>
+      <el-table-column label="累计限额(日/月)" width="140" align="right">
+        <template #default="{ row }">
+          {{ Number(row.limitDaily) > 0 ? row.limitDaily : '不限' }} /
+          {{ Number(row.limitMonthly) > 0 ? row.limitMonthly : '不限' }}
+        </template>
+      </el-table-column>
+      <el-table-column label="主体 / 类目" min-width="180">
+        <template #default="{ row }">
+          <div :style="{ color: row.legalEntityId ? '' : '#e6a23c' }">{{ entityName(row.legalEntityId) }}</div>
+          <el-tag v-if="row.category" size="small" :type="isRiskyCategory(row.category) ? 'danger' : 'info'">
+            {{ bizCategoryLabel(row.category) }}
+          </el-tag>
+          <span v-else style="color: #e6a23c; font-size: 12px">未设置类目</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="createdAt" label="创建时间" width="170">
         <template #default="{ row }">{{ fmt(row.createdAt) }}</template>
       </el-table-column>
@@ -65,8 +80,28 @@
             <el-option label="模拟" value="mock" />
           </el-select>
         </el-form-item>
+        <el-form-item label="归属主体">
+          <el-select v-model="form.legalEntityId" clearable filterable placeholder="未归属（不校验主体）" style="width: 100%">
+            <el-option v-for="e in entityOptions" :key="e.id" :label="e.name" :value="e.id" />
+          </el-select>
+          <div style="color: #8492a6; font-size: 12px">只能使用同主体的商户号，跨主体会被路由层拒绝</div>
+        </el-form-item>
+        <el-form-item label="经营类目">
+          <el-select v-model="form.category" clearable filterable placeholder="未设置" style="width: 100%">
+            <el-option v-for="c in BIZ_CATEGORIES" :key="c.value" :label="c.label" :value="c.value" />
+          </el-select>
+          <div style="color: #8492a6; font-size: 12px">须落在商户号已报备的类目内；高风险类目请单独配商户号</div>
+        </el-form-item>
         <el-form-item label="单笔限额(元)">
           <el-input-number v-model="form.limitPerOrder" :min="0" :precision="2" style="width: 180px" />
+          <span style="margin-left: 8px; color: #8492a6; font-size: 12px">0 = 不限</span>
+        </el-form-item>
+        <el-form-item label="单日累计(元)">
+          <el-input-number v-model="form.limitDaily" :min="0" :precision="2" style="width: 180px" />
+          <span style="margin-left: 8px; color: #8492a6; font-size: 12px">0 = 不限</span>
+        </el-form-item>
+        <el-form-item label="单月累计(元)">
+          <el-input-number v-model="form.limitMonthly" :min="0" :precision="2" style="width: 180px" />
           <span style="margin-left: 8px; color: #8492a6; font-size: 12px">0 = 不限</span>
         </el-form-item>
         <el-form-item label="备注">
@@ -100,6 +135,7 @@ import { ref, reactive, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
 import dayjs from 'dayjs';
+import { BIZ_CATEGORIES, bizCategoryLabel, isRiskyCategory } from '../constants/biz-category';
 
 const q = reactive({ keyword: '' });
 const list = ref([]);
@@ -119,12 +155,30 @@ const form = reactive({
   payNotifyUrl: '',
   refundNotifyUrl: '',
   ipWhitelist: '',
+  legalEntityId: null,
+  category: '',
   allowChannels: [],
   limitPerOrder: 0,
+  limitDaily: 0,
+  limitMonthly: 0,
   remark: '',
 });
 
 const fmt = (v) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '-');
+
+/** 法人主体下拉：业务系统只能路由到同主体的商户号 */
+const entityOptions = ref([]);
+async function loadEntities() {
+  try {
+    entityOptions.value = await api.legalEntities();
+  } catch {
+    entityOptions.value = [];
+  }
+}
+function entityName(id) {
+  if (!id) return '未归属';
+  return entityOptions.value.find((e) => e.id === id)?.name || `#${id}`;
+}
 
 async function load() {
   loading.value = true;
@@ -141,7 +195,19 @@ async function load() {
 
 function openCreate() {
   editing.value = null;
-  Object.assign(form, { name: '', payNotifyUrl: '', refundNotifyUrl: '', ipWhitelist: '', allowChannels: [], limitPerOrder: 0, remark: '' });
+  Object.assign(form, {
+    name: '',
+    payNotifyUrl: '',
+    refundNotifyUrl: '',
+    ipWhitelist: '',
+    allowChannels: [],
+    limitPerOrder: 0,
+    limitDaily: 0,
+    limitMonthly: 0,
+    legalEntityId: null,
+    category: '',
+    remark: '',
+  });
   dialogVisible.value = true;
 }
 
@@ -154,6 +220,10 @@ function openEdit(row) {
     ipWhitelist: row.ipWhitelist || '',
     allowChannels: row.allowChannels || [],
     limitPerOrder: Number(row.limitPerOrder) || 0,
+    limitDaily: Number(row.limitDaily) || 0,
+    limitMonthly: Number(row.limitMonthly) || 0,
+    legalEntityId: row.legalEntityId ?? null,
+    category: row.category || '',
     remark: row.remark || '',
   });
   dialogVisible.value = true;
@@ -216,5 +286,8 @@ function copy(text) {
   );
 }
 
-onMounted(load);
+onMounted(async () => {
+  await loadEntities();
+  load();
+});
 </script>

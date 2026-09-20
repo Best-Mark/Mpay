@@ -15,6 +15,14 @@ export interface MerchantAppView {
   verifyNotifySign: boolean;
   allowChannels?: string[];
   limitPerOrder: string;
+  /** 单日累计限额（元），"0" 表示不限 */
+  limitDaily: string;
+  /** 单月累计限额（元），"0" 表示不限 */
+  limitMonthly: string;
+  /** 归属法人主体（决定可用哪些商户号） */
+  legalEntityId?: number | null;
+  /** 经营类目（见 BizCategory） */
+  category?: string | null;
   enabled: boolean;
   remark?: string;
   /** 归属商户账号 ID（自助注册开通时有值） */
@@ -30,6 +38,12 @@ export interface MerchantAppSecret {
   name: string;
   allowChannels?: string[];
   limitPerOrder: string;
+  limitDaily: string;
+  limitMonthly: string;
+  /** 归属法人主体 ID（null = 未归属，不做主体校验） */
+  legalEntityId?: bigint | null;
+  /** 经营类目 */
+  category?: string | null;
   ipWhitelist?: string;
   verifyNotifySign: boolean;
 }
@@ -65,6 +79,10 @@ export class MerchantService {
       name: row.name,
       allowChannels: (row.allowChannels as string[]) || undefined,
       limitPerOrder: row.limitPerOrder.toString(),
+      limitDaily: row.limitDaily?.toString() ?? '0',
+      limitMonthly: row.limitMonthly?.toString() ?? '0',
+      legalEntityId: row.legalEntityId ?? null,
+      category: row.category ?? null,
       ipWhitelist: row.ipWhitelist || undefined,
       verifyNotifySign: row.verifyNotifySign,
     };
@@ -130,6 +148,12 @@ export class MerchantService {
     ipWhitelist?: string;
     allowChannels?: string[];
     limitPerOrder?: number;
+    limitDaily?: number;
+    limitMonthly?: number;
+    /** 归属法人主体 ID */
+    legalEntityId?: number;
+    /** 经营类目 */
+    category?: string;
     remark?: string;
     operator: string;
     ip?: string;
@@ -150,6 +174,10 @@ export class MerchantService {
         ipWhitelist: input.ipWhitelist,
         allowChannels: input.allowChannels ?? undefined,
         limitPerOrder: input.limitPerOrder ?? 0,
+        limitDaily: input.limitDaily ?? 0,
+        limitMonthly: input.limitMonthly ?? 0,
+        legalEntityId: input.legalEntityId ? BigInt(input.legalEntityId) : null,
+        category: input.category ?? null,
         remark: input.remark,
         userId: input.userId,
       },
@@ -178,6 +206,10 @@ export class MerchantService {
       ipWhitelist?: string;
       allowChannels?: string[];
       limitPerOrder?: number;
+      limitDaily?: number;
+      limitMonthly?: number;
+      legalEntityId?: number;
+      category?: string;
       enabled?: boolean;
       remark?: string;
       operator: string;
@@ -193,6 +225,12 @@ export class MerchantService {
         ipWhitelist: input.ipWhitelist,
         allowChannels: input.allowChannels ?? undefined,
         limitPerOrder: input.limitPerOrder,
+        limitDaily: input.limitDaily,
+        limitMonthly: input.limitMonthly,
+        ...(input.legalEntityId !== undefined
+          ? { legalEntityId: input.legalEntityId ? BigInt(input.legalEntityId) : null }
+          : {}),
+        category: input.category,
         enabled: input.enabled,
         remark: input.remark,
       },
@@ -242,6 +280,10 @@ export class MerchantService {
       verifyNotifySign: row.verifyNotifySign,
       allowChannels: (row.allowChannels as string[]) || undefined,
       limitPerOrder: row.limitPerOrder.toString(),
+      limitDaily: row.limitDaily?.toString() ?? '0',
+      limitMonthly: row.limitMonthly?.toString() ?? '0',
+      legalEntityId: row.legalEntityId ? Number(row.legalEntityId) : null,
+      category: row.category || null,
       enabled: row.enabled,
       remark: row.remark || undefined,
       userId: row.userId ? Number(row.userId) : undefined,

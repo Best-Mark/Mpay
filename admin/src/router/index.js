@@ -17,6 +17,7 @@ const routes = [
       { path: 'refunds', component: () => import('../views/Refunds.vue'), meta: { title: '退款管理', icon: '↩️' } },
       { path: 'reconcile', component: () => import('../views/Reconcile.vue'), meta: { title: '对账中心', icon: '🧮' } },
       { path: 'merchants', component: () => import('../views/Merchants.vue'), meta: { title: '业务系统', icon: '🏢' } },
+      { path: 'legal-entities', component: () => import('../views/LegalEntities.vue'), meta: { title: '法人主体', icon: '🏛️' } },
       { path: 'channels', component: () => import('../views/Channels.vue'), meta: { title: '渠道配置', icon: '🔌' } },
       { path: 'personal-qr', component: () => import('../views/PersonalQr.vue'), meta: { title: '个人收款码', icon: '💳' } },
       { path: 'notifies', component: () => import('../views/Notifies.vue'), meta: { title: '通知任务', icon: '📮' } },

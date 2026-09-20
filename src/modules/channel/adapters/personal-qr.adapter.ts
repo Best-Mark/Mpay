@@ -14,6 +14,7 @@ import {
 import { Channel } from '../../../common/constants/enums';
 import { BizException } from '../../../common/exceptions/biz.exception';
 import { ErrorCode } from '../../../common/constants/error-codes';
+import { SystemConfigService } from '../../../common/config/system-config.service';
 
 /**
  * 个人收款码渠道适配器
@@ -32,7 +33,7 @@ export class PersonalQrAdapter implements ChannelAdapter {
   readonly isSandbox = false;
   private readonly logger = new Logger(PersonalQrAdapter.name);
 
-  constructor(mchId = 'PERSONAL_QR', private readonly prisma?: any) {
+  constructor(mchId = 'PERSONAL_QR', private readonly prisma?: any, private readonly cfg?: SystemConfigService) {
     this.mchId = mchId;
   }
 
@@ -56,7 +57,22 @@ export class PersonalQrAdapter implements ChannelAdapter {
 
     const payUrl = PersonalQrAdapter.cashierUrl(params.payOrderNo);
     const channelTxnId = `QR${Date.now()}${Math.random().toString(16).slice(2, 8)}`;
-    this.logger.log(`[personal-qr] 下单 ${params.payOrderNo} ${params.amount}元 appId=${params.appId} 码=${codes.length}张`);
+
+    /**
+     * 唯一金额识别码（可选，开关 personalQr.uniqueAmount，默认关闭）
+     * 开启后应付金额 = 订单金额 + 0.01~0.90 元的分位识别码（由订单号派生），
+     * 使「到账金额」本身就是订单的唯一键 —— 即使付款人没填备注，监控器也能 100% 自动匹配。
+     * 代价：付款人多付几分钱（差额由收款方承担或计入订单），需业务系统明确接受。
+     */
+    let qrAmount: string | undefined;
+    if (await this.cfg?.getBool('personalQr.uniqueAmount', false)) {
+      const base = Number(params.amount);
+      const tail = Number(String(params.payOrderNo).replace(/\D/g, '').slice(-2) || '0');
+      const offset = (tail % 90) + 1; // 1 ~ 90 分
+      qrAmount = ((Math.round(base * 100) + offset) / 100).toFixed(2);
+    }
+
+    this.logger.log(`[personal-qr] 下单 ${params.payOrderNo} ${params.amount}元 appId=${params.appId} 码=${codes.length}张${qrAmount ? ` 应付=${qrAmount}` : ''}`);
 
     return {
       channelTxnId,
@@ -67,6 +83,8 @@ export class PersonalQrAdapter implements ChannelAdapter {
         /** 收款码集合：业务系统若想自己渲染收银台可直接用 */
         codes: codes.map((c: any) => ({ type: c.type, name: c.name, imageUrl: c.imageUrl })),
         amount: params.amount,
+        /** 开启唯一金额识别码后的实际应付金额（收银台展示与监控器匹配均以此为准） */
+        qrAmount,
         payOrderNo: params.payOrderNo,
         subject: params.subject,
         expireAt: params.expireAt?.toISOString(),

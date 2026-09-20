@@ -52,6 +52,13 @@ export const CONFIG_DEFS: ConfigDef[] = [
   { key: 'alert.reconcileDiff', group: 'alert', label: '对账差异告警', default: 'true' },
   { key: 'alert.diffThreshold', group: 'alert', label: '差异笔数阈值', default: '10', env: 'RECONCILE_DIFF_ALERT_THRESHOLD', remark: '达到该笔数即告警' },
   { key: 'alert.silentMinutes', group: 'alert', label: '同类告警静默期(分钟)', default: '30', remark: '防止故障期间刷屏' },
+  { key: 'alert.personalQrUnmatched', group: 'alert', label: '个人码到账挂账告警', default: 'true', remark: '监控器上报但匹配不到订单时发邮件' },
+
+  // ===== 个人收款码（到账监控）=====
+  { key: 'personalQr.autoConfirm', group: 'personalQr', label: '到账自动确认', default: 'true', remark: '关闭后所有到账事件都需后台人工绑定确认' },
+  { key: 'personalQr.matchWindowMinutes', group: 'personalQr', label: '匹配时间窗(分钟)', default: '30', remark: '只与「到账时刻前该时间窗内创建」的待付订单匹配' },
+  { key: 'personalQr.uniqueAmount', group: 'personalQr', label: '唯一金额识别码', default: 'false', remark: '开启后应付金额=订单金额+0.01~0.90元识别码，到账金额即订单唯一键；代价是付款人多付几分钱' },
+  { key: 'personalQr.textAmountRegex', group: 'personalQr', label: '到账文本金额正则', default: '', remark: '可选：通知/短信文案特殊时自定义抽取金额，第一个捕获组为金额，如 (\\d+\\.\\d{2})元' },
 
   // ===== 站点 =====
   { key: 'site.name', group: 'site', label: '站点名称', default: '统一支付中心', env: 'SITE_NAME' },
@@ -165,7 +172,7 @@ export class SystemConfigService {
 
   /** 全部分组（后台设置页一次拉取） */
   async getAllGroups(): Promise<Record<string, ConfigItemView[]>> {
-    const groups = ['mail', 'register', 'alert', 'site'];
+    const groups = ['mail', 'register', 'alert', 'personalQr', 'site'];
     const out: Record<string, ConfigItemView[]> = {};
     for (const g of groups) out[g] = await this.getGroup(g);
     return out;

@@ -19,6 +19,7 @@
         </el-select>
         <el-button type="primary" @click="loadTasks">查询</el-button>
         <el-button type="success" @click="runVisible = true">▶ 手动对账</el-button>
+        <el-button @click="openBillDialog">⬇ 账单补拉</el-button>
         <el-button @click="loadTasks">刷新</el-button>
       </div>
 
@@ -169,6 +170,49 @@
       <template #footer>
         <el-button @click="runVisible = false">取消</el-button>
         <el-button type="primary" :loading="running" @click="doRun">开始对账</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- =============== 渠道账单补拉 =============== -->
+    <el-dialog v-model="billVisible" title="渠道账单补拉" width="580px">
+      <el-form :model="billForm" label-width="100px">
+        <el-form-item label="账单日期" required>
+          <el-date-picker v-model="billForm.billDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="拉取范围">
+          <el-select v-model="billForm.configId" clearable placeholder="全部商户号（全量遍历）" style="width: 100%">
+            <el-option
+              v-for="t in billTargets"
+              :key="t.configId"
+              :value="t.configId"
+              :label="`${t.channel} / ${t.mchId}${t.name ? ' · ' + t.name : ''}`"
+            />
+          </el-select>
+          <div style="font-size: 12px; color: #8492a6; line-height: 1.6; margin-top: 4px">
+            留空 = 遍历全部渠道商户号逐个下载。同一渠道下挂了多个主体 / 类目的商户号时，
+            只拉默认号会漏掉其余主体的账。
+          </div>
+        </el-form-item>
+        <el-form-item label="强制重拉">
+          <el-switch v-model="billForm.force" />
+          <span style="margin-left: 8px; font-size: 12px; color: #8492a6">已有账单也重新下载（按唯一键覆盖，不会重复）</span>
+        </el-form-item>
+      </el-form>
+
+      <el-alert
+        v-if="billResult"
+        :type="billResult.failed ? 'warning' : 'success'"
+        :closable="false"
+        style="margin-top: 6px"
+        :title="`成功 ${billResult.succeeded} 个商户号，跳过(已有) ${billResult.skipped || 0}，失败 ${billResult.failed}`"
+      />
+      <div v-if="billResult?.errors?.length" style="margin-top: 8px; font-size: 12px; color: #e6a23c">
+        <div v-for="(e, i) in billResult.errors" :key="i">{{ e.channel }}/{{ e.mchId }}：{{ e.error }}</div>
+      </div>
+
+      <template #footer>
+        <el-button @click="billVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="fetchingBill" @click="doFetchBills">开始拉取</el-button>
       </template>
     </el-dialog>
 
@@ -330,6 +374,16 @@ const reportVisible = ref(false);
 const report = ref(null);
 const reportDiffs = ref([]);
 
+const billVisible = ref(false);
+const fetchingBill = ref(false);
+const billTargets = ref([]);
+const billResult = ref(null);
+const billForm = reactive({
+  billDate: dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+  configId: null,
+  force: false,
+});
+
 const handleVisible = ref(false);
 const handling = ref(null);
 const handlingSubmit = ref(false);
@@ -385,6 +439,38 @@ async function doRun() {
     ElMessage.error(e.message);
   } finally {
     running.value = false;
+  }
+}
+
+async function openBillDialog() {
+  billResult.value = null;
+  billVisible.value = true;
+  try {
+    billTargets.value = await api.billTargets();
+  } catch (e) {
+    ElMessage.error(e.message);
+  }
+}
+
+async function doFetchBills() {
+  if (!billForm.billDate) {
+    ElMessage.warning('请选择账单日期');
+    return;
+  }
+  fetchingBill.value = true;
+  try {
+    if (billForm.configId) {
+      const t = billTargets.value.find((x) => x.configId === billForm.configId);
+      const r = await api.fetchBill({ channel: t.channel, billDate: billForm.billDate, configId: t.configId });
+      billResult.value = { succeeded: 1, skipped: 0, failed: 0, results: [r], errors: [] };
+    } else {
+      billResult.value = await api.fetchAllBills({ billDate: billForm.billDate, force: billForm.force });
+    }
+    ElMessage.success(billResult.value.failed ? '拉取完成，部分商户号失败' : '账单拉取完成');
+  } catch (e) {
+    ElMessage.error(e.message);
+  } finally {
+    fetchingBill.value = false;
   }
 }
 

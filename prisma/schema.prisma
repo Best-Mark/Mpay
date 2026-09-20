@@ -168,12 +168,19 @@ model ChannelConfig {
   billParams        Json?    @map("bill_params")
   /// 其他扩展参数（网关地址、版本等）
   extra             Json?
+  /// 归属法人主体：一个商户号只能属于一个主体（跨主体收款属二清，路由层硬拒绝）
+  legalEntityId     BigInt?  @map("legal_entity_id")
+  /// 该商户号已报备的经营类目（JSON 数组，空 = 不限制）
+  categories        Json?    @map("categories")
   remark            String?  @db.VarChar(256)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
+  legalEntity LegalEntity? @relation(fields: [legalEntityId], references: [id])
+
   @@unique([channel, mchId, scene], name: "uk_channel_mch_scene")
   @@index([channel, enabled], name: "idx_channel_enabled")
+  @@index([legalEntityId], name: "idx_channel_entity")
   @@map("channel_config")
 }
 
@@ -201,6 +208,42 @@ model PersonalQrCode {
 }
 
 // ============================================================
+// 3.2 入站到账事件表（个人收款码「监控器」上报）
+// 说明：个人码没有渠道回调，到账事件由监控器（监听微信/支付宝收款通知的
+//      手机端/网关程序）主动上报本表；支付中心按「金额 + 备注尾号 + 时间窗」
+//      自动匹配订单并置成功，匹配不上则挂账告警、后台人工绑定。
+// ============================================================
+model PaymentIncomingEvent {
+  id           BigInt   @id @default(autoincrement())
+  /// 所属业务系统 AppId（取自签名身份，不信任报文里的值）
+  appId        String   @map("app_id") @db.VarChar(32)
+  /// 到账账户类型: wechat / alipay / other
+  accountType  String   @map("account_type") @db.VarChar(16)
+  /// 实收金额（元）
+  amount       Decimal  @db.Decimal(18, 2)
+  /// 监控器侧流水号：同一笔到账的唯一键（幂等，重复上报只处理一次）
+  serial       String   @db.VarChar(64)
+  /// 付款备注（收银台提示付款人填的订单号尾号）
+  remark       String?  @db.VarChar(64)
+  /// 付款方账号 / 昵称
+  payerAccount String?  @map("payer_account") @db.VarChar(64)
+  /// 监控器上报的到账时间
+  paidAt       DateTime @map("paid_at")
+  /// 匹配结果: PENDING / MATCHED / UNMATCHED / AMBIGUOUS / BOUND
+  matchStatus  String   @default("PENDING") @map("match_status") @db.VarChar(16)
+  /// 命中（或人工绑定）的支付订单号
+  payOrderNo   String?  @map("pay_order_no") @db.VarChar(32)
+  /// 监控器原始报文（通知全文/解析结果，便于事后核对）
+  raw          Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([appId, serial], name: "uk_event_app_serial")
+  @@index([appId, matchStatus, createdAt], name: "idx_event_match")
+  @@map("payment_incoming_event")
+}
+
+// ============================================================
 // 4. 业务系统配置表（核心：AppId / 回调地址 / 密钥）
 // ============================================================
 model MerchantApp {
@@ -219,10 +262,20 @@ model MerchantApp {
   ipWhitelist      String?  @map("ip_whitelist") @db.VarChar(512)
   /// 是否校验回调响应签名
   verifyNotifySign Boolean  @default(true) @map("verify_notify_sign")
+  /// 到账监控器上报专用 Token（长期固定，供通知/短信转发类工具调用上报接口；后台可重置）
+  monitorToken     String?  @unique @map("monitor_token") @db.VarChar(64)
   /// 允许使用的支付渠道（JSON 数组），空表示全部
   allowChannels    Json?    @map("allow_channels")
   /// 单笔限额（元），0 表示不限
   limitPerOrder    Decimal  @default(0.00) @map("limit_per_order") @db.Decimal(18, 2)
+  /// 单日累计限额（元），0 表示不限
+  limitDaily       Decimal  @default(0.00) @map("limit_daily") @db.Decimal(18, 2)
+  /// 单月累计限额（元），0 表示不限
+  limitMonthly     Decimal  @default(0.00) @map("limit_monthly") @db.Decimal(18, 2)
+  /// 归属法人主体：决定可用哪些商户号，跨主体收款属二清，路由层硬拒绝
+  legalEntityId    BigInt?  @map("legal_entity_id")
+  /// 经营类目（见 BizCategory）：须落在商户号已报备的类目内
+  category         String?  @db.VarChar(32)
   enabled          Boolean  @default(true)
   remark           String?  @db.VarChar(256)
   /// 归属商户账号（自助注册审核通过后绑定；后台手工创建则为空）
@@ -232,8 +285,36 @@ model MerchantApp {
 
   user MerchantUser? @relation(fields: [userId], references: [id])
 
+  legalEntity LegalEntity? @relation(fields: [legalEntityId], references: [id])
+
   @@index([userId], name: "idx_user")
+  @@index([legalEntityId], name: "idx_app_entity")
   @@map("merchant_app")
+}
+
+// ============================================================
+// 4.1 法人主体表
+// 说明：收款合规的基础维度。一个商户号只能归属一个主体，业务系统只能
+//      路由到同主体的商户号 —— 从数据层面杜绝「A 公司号收 B 公司钱」的二清。
+// ============================================================
+model LegalEntity {
+  id          BigInt   @id @default(autoincrement())
+  /// 主体名称（营业执照上的公司全称）
+  name        String   @db.VarChar(128)
+  /// 统一社会信用代码
+  unifiedCode String?  @unique @map("unified_code") @db.VarChar(32)
+  /// 联系人 / 法定代表人
+  contact     String?  @db.VarChar(64)
+  /// 备注（主营类目、开户说明等）
+  remark      String?  @db.VarChar(256)
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  apps     MerchantApp[]
+  channels ChannelConfig[]
+
+  @@map("legal_entity")
 }
 
 // ============================================================
@@ -285,6 +366,10 @@ model ChannelBill {
 
   @@unique([billDate, channel, mchId, tradeNo, billType], name: "uk_bill_line")
   @@index([billDate, channel], name: "idx_bill_date_channel")
+  /// 按商户号判缺（多商户号并存时账单遍历逐个判）
+  @@index([billDate, channel, mchId], name: "idx_bill_date_mch")
+  /// 按业务系统（项目）维度查账：同主体多项目共号时，账目靠 appId 拆分
+  @@index([appId, billDate], name: "idx_bill_app_date")
   @@index([outTradeNo], name: "idx_out_trade_no")
   @@index([tradeNo], name: "idx_trade_no")
   @@index([taskId], name: "idx_task_id")

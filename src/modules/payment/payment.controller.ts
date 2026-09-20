@@ -2,7 +2,7 @@ import { Body, Controller, Post, Req, UseGuards, UseInterceptors } from '@nestjs
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { PaymentService } from './payment.service';
-import { CreateOrderDto, QueryOrderDto, CloseOrderDto } from './payment.dto';
+import { CreateOrderDto, QueryOrderDto, CloseOrderDto, ConfirmPaidDto } from './payment.dto';
 import { ApiSignGuard } from '../auth/api-sign.guard';
 import { assertParam } from '../../common/exceptions/biz.exception';
 import { ApiVersionInterceptor } from '../../common/interceptors/api-version.interceptor';
@@ -47,5 +47,17 @@ export class PaymentController {
   async close(@Req() req: Request, @Body() dto: CloseOrderDto) {
     const appId = (req as any).merchantApp.appId as string;
     return this.paymentService.closeOrder(appId, dto, appId);
+  }
+
+  /**
+   * 商户自助确认到账（个人收款码专用）
+   * 商户在自己系统里核对微信/支付宝账单后调用，效果与后台「确认到账」一致：
+   * 置成功 + 通知业务系统。有官方回调的渠道调用会被拒绝。
+   */
+  @Post('confirm-paid')
+  @ApiOperation({ summary: '商户自助确认到账（仅个人收款码渠道），确认后置成功并通知' })
+  async confirmPaid(@Req() req: Request, @Body() dto: ConfirmPaidDto) {
+    const appId = (req as any).merchantApp.appId as string;
+    return this.paymentService.confirmPaidByMerchant(appId, dto);
   }
 }

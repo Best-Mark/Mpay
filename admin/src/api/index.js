@@ -59,6 +59,12 @@ export const api = {
   updatePersonalQr: (id, data) => unwrap(http.put(`/admin/personal-qr/${id}`, data)),
   deletePersonalQr: (id) => unwrap(http.delete(`/admin/personal-qr/${id}`)),
 
+  // ===== 法人主体（合规隔离：跨主体收款属二清）=====
+  legalEntities: (keyword) => unwrap(http.get('/admin/legal-entities', { params: { keyword } })),
+  createLegalEntity: (data) => unwrap(http.post('/admin/legal-entities', data)),
+  updateLegalEntity: (id, data) => unwrap(http.put(`/admin/legal-entities/${id}`, data)),
+  deleteLegalEntity: (id) => unwrap(http.delete(`/admin/legal-entities/${id}`)),
+
   // ===== 退款 =====
   refunds: (params) => unwrap(http.get('/admin/refunds', { params })),
   retryRefund: (refundNo) => unwrap(http.post(`/admin/refunds/${refundNo}/retry`)),
@@ -84,6 +90,9 @@ export const api = {
     unwrap(http.post(`/admin/reconcile/diffs/${id}/handle`, { action, remark })),
   exportUrl: (taskNo) => `/api/admin/reconcile/tasks/${taskNo}/export`,
   fetchBill: (data) => unwrap(http.post('/admin/reconcile/bills/fetch', data)),
+  billTargets: () => unwrap(http.get('/admin/reconcile/bills/targets')),
+  fetchAllBills: (data) => unwrap(http.post('/admin/reconcile/bills/fetch-all', data)),
+  uploadBill: (data) => unwrap(http.post('/admin/reconcile/bills/upload', data)),
   billStatus: (params) => unwrap(http.get('/admin/reconcile/bills', { params })),
 
   // ===== 通知 =====

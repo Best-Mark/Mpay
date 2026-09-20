@@ -47,6 +47,44 @@ export enum TradeType {
   FACE_TO_FACE = 'FACE_TO_FACE',
 }
 
+/**
+ * 经营类目
+ *
+ * 商户号在支付机构侧报备了经营类目，业务系统也需声明类目，两者必须匹配才能路由。
+ * 虚拟充值 / 预付费 / 游戏属高风险类目，务必单独进件、单独商户号：
+ * 与普通业务共用一个商户号会连坐 —— 一个号被风控，所有项目同时断收。
+ */
+export enum BizCategory {
+  /** 一般类：软件与技术服务 / SaaS */
+  GENERAL = 'general',
+  /** 实物电商 */
+  RETAIL = 'retail',
+  /** 线下门店 / 本地生活 */
+  OFFLINE = 'offline',
+  /** 虚拟充值（点卡、会员、虚拟商品） */
+  VIRTUAL = 'virtual',
+  /** 预付费 / 储值（监管最严，多需资金存管或备案） */
+  PREPAID = 'prepaid',
+  /** 游戏（需版号，未成年人退款高发） */
+  GAME = 'game',
+  /** 教育 / 知识付费 */
+  EDUCATION = 'education',
+  /** 数字内容 / 文娱 */
+  CONTENT = 'content',
+}
+
+/** 类目中文名（报错信息与操作日志用） */
+export const BIZ_CATEGORY_LABEL: Record<string, string> = {
+  [BizCategory.GENERAL]: '一般类',
+  [BizCategory.RETAIL]: '实物电商',
+  [BizCategory.OFFLINE]: '线下门店',
+  [BizCategory.VIRTUAL]: '虚拟充值',
+  [BizCategory.PREPAID]: '预付费',
+  [BizCategory.GAME]: '游戏',
+  [BizCategory.EDUCATION]: '教育',
+  [BizCategory.CONTENT]: '数字内容',
+};
+
 /** 支付订单状态流转：
  *  CREATED ──> PAYING ──> SUCCESS ──> REFUNDING ──> REFUNDED
  *     │           │

@@ -94,16 +94,21 @@ export class ReconcileService implements OnModuleInit {
 
   // ==================== 调度入口 ====================
 
-  /** 每日自动拉单：拉取前一日各渠道账单 */
+  /** 每日自动拉单：拉取前一日「全部商户号」的账单 */
   private async autoFetchBills(): Promise<void> {
     const billDate = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
-    const channels = await this.billService.listActiveChannels();
-    for (const channel of channels) {
-      try {
-        await this.billService.fetchAndStore({ channel, billDate, operator: 'SYSTEM' });
-      } catch (e: any) {
-        this.logger.error(`[autoFetch] ${channel} ${billDate}: ${e.message}`);
+    try {
+      const r = await this.billService.fetchAllAndStore({ billDate, operator: 'SYSTEM' });
+      this.logger.log(
+        `[autoFetch] ${billDate} 全量账单：目标 ${r.total} 个商户号，成功 ${r.succeeded}、跳过(已有) ${r.skipped}、失败 ${r.failed}`,
+      );
+      if (r.failed) {
+        this.logger.error(
+          `[autoFetch] ${billDate} 以下商户号账单拉取失败：${r.errors.map((e) => `${e.channel}/${e.mchId}(${e.error})`).join('; ')}`,
+        );
       }
+    } catch (e: any) {
+      this.logger.error(`[autoFetch] ${billDate}: ${e.message}`);
     }
   }
 
@@ -171,18 +176,46 @@ export class ReconcileService implements OnModuleInit {
     });
 
     try {
-      // 1. 确保账单就绪
-      const channels = channel === 'ALL' ? await this.billService.listActiveChannels() : [channel];
-      for (const c of channels) {
-        const count = await this.billService.hasBill(c, billDate);
-        if ((count === 0 || params.forceFetch) && (params.autoFetch ?? true)) {
-          this.logger.log(`[reconcile] ${c} ${billDate} 账单 ${count} 行${params.forceFetch ? '（强制刷新）' : '，尝试自动下载'}`);
+      // 1. 确保账单就绪：遍历该渠道下「每一个商户号」逐个判缺补拉
+      //    只按渠道判缺时，默认号有账单就认为就绪，其余商户号永远不下载 —— 等于漏对账。
+      const billTargets = (await this.billService.listBillTargets()).filter(
+        (t) => channel === 'ALL' || t.channel === channel,
+      );
+      const fetchErrors: string[] = [];
+      for (const t of billTargets) {
+        const count = await this.billService.hasBillForMch(t.channel, t.mchId, billDate);
+        if (!((count === 0 || params.forceFetch) && (params.autoFetch ?? true))) continue;
+        this.logger.log(
+          `[reconcile] ${t.channel}/${t.mchId} ${billDate} 账单 ${count} 行${params.forceFetch ? '（强制刷新）' : '，尝试自动下载'}`,
+        );
+        try {
           await this.billService.fetchAndStore({
-            channel: c,
+            channel: t.channel,
             billDate,
+            configId: t.configId,
             operator: params.triggeredBy || 'SYSTEM',
             taskId: task.id,
           });
+        } catch (e: any) {
+          // 单个商户号失败不拖垮整批对账，但必须留在报告里，不能静默
+          fetchErrors.push(`${t.channel}/${t.mchId}: ${e.message}`);
+          this.logger.error(`[reconcile] ${t.channel}/${t.mchId} ${billDate} 账单拉取失败: ${e.message}`);
+        }
+      }
+      // 该渠道未配置商户号（如 Mock）：退回按渠道默认配置拉一次，保持既有行为
+      if (!billTargets.length && channel !== 'ALL') {
+        const count = await this.billService.hasBill(channel, billDate);
+        if ((count === 0 || params.forceFetch) && (params.autoFetch ?? true)) {
+          try {
+            await this.billService.fetchAndStore({
+              channel,
+              billDate,
+              operator: params.triggeredBy || 'SYSTEM',
+              taskId: task.id,
+            });
+          } catch (e: any) {
+            fetchErrors.push(`${channel}: ${e.message}`);
+          }
         }
       }
 
@@ -194,12 +227,15 @@ export class ReconcileService implements OnModuleInit {
       const bills = await this.prisma.channelBill.findMany({ where: billWhere });
 
       // 3. 载入支付中心订单（按支付成功时间落在对账日）
+      //    按商户号对账时订单侧必须同步按 channelMchId 收敛，否则其他商户号的订单
+      //    会被判成「中心有、渠道无」的假短款（下单即写入 channelMchId，见 payment.service）
       const { start: dayStart, end: dayEnd } = DateUtil.localDayRange(billDate);
       const orderWhere: any = {
         paidAt: { gte: dayStart, lte: dayEnd },
         status: { in: [PayOrderStatus.SUCCESS, PayOrderStatus.REFUNDING, PayOrderStatus.REFUNDED] },
       };
       if (channel !== 'ALL') orderWhere.channel = channel;
+      if (params.mchId) orderWhere.channelMchId = params.mchId;
       if (params.appId) orderWhere.appId = params.appId;
       const orders = await this.prisma.payOrder.findMany({ where: orderWhere });
 
@@ -231,10 +267,12 @@ export class ReconcileService implements OnModuleInit {
 
       // 6. 汇总更新
       const matchRate = result.channelCount > 0 ? Money.div(result.matchedCount, result.channelCount) : Money.D(0);
+      // 有商户号账单没拉到时，即使账面全平也不能算 SUCCESS —— 漏掉的那部分根本没对过
       const finished = await this.prisma.reconcileTask.update({
         where: { id: task.id },
         data: {
-          status: result.diffs.length ? ReconcileStatus.PARTIAL : ReconcileStatus.SUCCESS,
+          status: result.diffs.length || fetchErrors.length ? ReconcileStatus.PARTIAL : ReconcileStatus.SUCCESS,
+          errorMessage: fetchErrors.length ? `账单拉取失败：${fetchErrors.join('; ')}`.slice(0, 1000) : null,
           channelCount: result.channelCount,
           channelAmount: Money.round(result.channelAmount, 2),
           centerCount: result.centerCount,

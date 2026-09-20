@@ -91,3 +91,50 @@ export class CloseOrderDto {
   @IsString()
   merchantOrderNo?: string;
 }
+
+/**
+ * 商户自助确认到账（仅个人收款码渠道）
+ * 有官方回调的渠道（微信/支付宝/银联）禁止人工置成功 —— 否则等于绕过渠道真实状态，
+ * 可以把「渠道根本没收到钱」的订单标记成已支付。
+ */
+export class ConfirmPaidDto {
+  /** 支付中心订单号，二选一 */
+  @IsOptional()
+  @IsString()
+  payOrderNo?: string;
+
+  /** 业务订单号，二选一 */
+  @IsOptional()
+  @IsString()
+  merchantOrderNo?: string;
+
+  /** 实际到账金额（元）：必填，必须与订单应付金额一致，否则需显式 allowDiff */
+  @IsPositive({ message: 'paidAmount 必须为正数（实际到账金额）' })
+  paidAmount: number;
+
+  /** 账单里的渠道流水号 / 交易号（便于事后对账） */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  channelTxnId?: string;
+
+  /** 付款方昵称 / 账号 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  payerAccount?: string;
+
+  /** 到账时间（ISO），缺省为当前时间 */
+  @IsOptional()
+  @IsString()
+  paidAt?: string;
+
+  /** 允许实收金额与应付金额不一致（少付/多付）：默认 false，不一致直接拒绝 */
+  @IsOptional()
+  allowDiff?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  remark?: string;
+}

@@ -35,6 +35,8 @@ export class AdminPortalController {
         refundNotifyUrl: body?.refundNotifyUrl,
         allowChannels: body?.allowChannels,
         limitPerOrder: body?.limitPerOrder,
+        limitDaily: body?.limitDaily,
+        limitMonthly: body?.limitMonthly,
         remark: body?.remark,
       },
       currentAdmin(req).username,

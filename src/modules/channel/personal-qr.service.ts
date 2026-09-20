@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { BizException } from '../../common/exceptions/biz.exception';
 import { ErrorCode } from '../../common/constants/error-codes';
@@ -86,6 +87,39 @@ export class PersonalQrService {
       orderBy: [{ type: 'asc' }, { id: 'asc' }],
     });
     return rows.map((r) => ({ type: r.type, name: r.name, imageUrl: r.imageUrl }));
+  }
+
+  /**
+   * 生成 / 重置「到账监控器」上报 Token
+   * 场景：收款手机上装通知转发工具（Tasker / 短信转发器等），它们只能发带固定 Token 的 HTTP 请求，
+   * 算不出 HMAC 签名，所以给业务系统单独发一枚长期 Token，专供到账上报接口。
+   * 重新生成即让旧 Token 立即失效（转发工具需同步更新）。
+   */
+  async issueMonitorToken(appId: string) {
+    const id = (appId || '').trim();
+    if (!id) throw new BizException(ErrorCode.PARAM_ERROR, 'appId 必填');
+    const app = await this.prisma.merchantApp.findUnique({ where: { appId: id } });
+    if (!app) throw new BizException(ErrorCode.PARAM_ERROR, `业务系统 ${id} 不存在`);
+
+    const token = `mt_${randomBytes(24).toString('hex')}`;
+    await this.prisma.merchantApp.update({ where: { appId: id }, data: { monitorToken: token } });
+    this.logger.log(`[personal-qr] 重置监控器上报 Token appId=${id}`);
+    return { appId: id, monitorToken: token };
+  }
+
+  /** Token 状态：只回显前缀，不明文返回（明文仅在生成那一次返回） */
+  async monitorTokenStatus(appId: string) {
+    const app = await this.prisma.merchantApp.findUnique({
+      where: { appId },
+      select: { appId: true, name: true, monitorToken: true },
+    });
+    if (!app) throw new BizException(ErrorCode.PARAM_ERROR, `业务系统 ${appId} 不存在`);
+    return {
+      appId: app.appId,
+      name: app.name,
+      hasToken: !!app.monitorToken,
+      prefix: app.monitorToken ? app.monitorToken.slice(0, 6) : null,
+    };
   }
 
   private toView(r: any) {
