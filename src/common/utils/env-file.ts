@@ -19,6 +19,8 @@ PORT=3000
 PAY_BASE_URL=
 # 管理后台/开放接口是否开启限流
 RATE_LIMIT_ENABLED=true
+# 反向代理信任跳数：nginx 反代下填 1（只信任最后一跳，忽略客户端伪造的 XFF）；直连填 0
+TRUST_PROXY=1
 
 # ========== 数据库 ==========
 # 分项配置（库名可自定义），启动时自动组装为 DATABASE_URL

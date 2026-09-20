@@ -111,7 +111,7 @@ if command -v pm2 >/dev/null 2>&1; then
       log "等待启动自愈执行迁移（8s）"
       sleep 8
       pm2 logs "$PM2_APP" --lines 60 --nostream 2>/dev/null |
-        grep -E "已应用数据库迁移|数据库连接正常|数据库连接失败|迁移失败" ||
+        grep -E "已应用数据库迁移|数据库结构已是最新|数据库连接正常|数据库连接失败|自愈失败" ||
         warn "日志中未匹配到迁移结果，请手动执行：pm2 logs $PM2_APP"
     fi
   else

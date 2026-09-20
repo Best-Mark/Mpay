@@ -46,6 +46,10 @@ async function bootstrap() {
       if (r.missingTables.length) {
         logger.error(`数据库结构不完整，缺少表: ${r.missingTables.join(', ')}（检查 prisma/migrations 是否随包部署）`);
       }
+      // 无新增也留一行，便于部署后从日志确认自愈确实跑过（而不是被跳过或静默失败）
+      if (!r.applied.length) {
+        logger.log(`数据库结构已是最新（跳过已应用迁移 ${r.skipped} 个）`);
+      }
     } catch (e: any) {
       logger.error(`数据库结构自愈失败（不阻断启动，接口将不可用）: ${e.message}`);
     }
@@ -102,6 +106,16 @@ async function bootstrap() {
     req.traceId = traceId;
     TraceContext.run({ traceId }, () => next());
   });
+
+  // ===== 反向代理信任（nginx 反代下必须）=====
+  // 不设置时 express-rate-limit 在读到 X-Forwarded-For 会抛 ERR_ERL_UNEXPECTED_X_FORWARDED_FOR，
+  // 且限流/日志拿不到真实客户端 IP。默认只信任最靠近本机的一跳（即 nginx），
+  // 客户端伪造的 XFF 前缀被忽略；TRUST_PROXY=0/false 关闭（直连部署），=true 信任全部，=数字指定跳数
+  const trustProxy = (process.env.TRUST_PROXY ?? '1').trim();
+  if (trustProxy !== '0' && trustProxy !== 'false') {
+    const expressApp: any = app.getHttpAdapter().getInstance();
+    expressApp.set('trust proxy', trustProxy === 'true' ? true : Number(trustProxy) || 1);
+  }
 
   // ===== 上传文件静态服务（/uploads/2026/09/xxx.webp）=====
   const uploadDir = path.resolve(process.cwd(), process.env.UPLOAD_DIR || './storage/uploads');
