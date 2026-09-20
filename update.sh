@@ -4,6 +4,7 @@
 # 用法（在项目根目录执行）：
 #   bash update.sh              全量更新（默认）
 #   bash update.sh --no-deps    跳过 npm install，只构建
+#   bash update.sh --no-db      跳过数据库迁移（确认本次无 schema/迁移变更时用）
 #   bash update.sh --no-nginx   不重载 nginx
 #   bash update.sh --web        只构建 C 端官网（改官网文案/样式时用，最快）
 #   bash update.sh --admin      只构建管理后台
@@ -16,6 +17,7 @@ cd "$ROOT"
 
 PM2_APP="${PM2_APP:-mpay}"
 DO_DEPS=1
+DO_DB=1
 DO_NGINX=1
 ONLY=""
 
@@ -27,6 +29,7 @@ usage() {
 for arg in "$@"; do
   case "$arg" in
     --no-deps) DO_DEPS=0 ;;
+    --no-db) DO_DB=0 ;;
     --no-nginx) DO_NGINX=0 ;;
     --web) ONLY="web" ;;
     --admin) ONLY="admin" ;;
@@ -75,13 +78,26 @@ elif [ "$ONLY" = "admin" ]; then
   build_dir admin "管理后台"
 else
   install_deps . "后端"
+  log "生成 Prisma Client（schema 有变更时必须，幂等）"
+  npm run prisma:generate
   log "构建：后端"
   npm run build
   build_dir admin "管理后台"
   build_dir web "C 端官网"
 fi
 
-# ---------- 3. 重启服务 ----------
+# ---------- 3. 数据库迁移（必须在重启前，且失败绝不重启） ----------
+if [ "$ONLY" = "web" ] || [ "$ONLY" = "admin" ]; then
+  log "跳过数据库迁移（本次只构建前端）"
+elif [ "$DO_DB" = "0" ]; then
+  warn "跳过数据库迁移（--no-db）：确认本次无迁移变更，否则新代码会缺表/缺列"
+else
+  log "执行数据库迁移：prisma migrate deploy（幂等，只跑未应用的迁移）"
+  npm run prisma:deploy ||
+    fail "数据库迁移失败，已中止重启。请先看上方报错修复，再重跑 bash update.sh"
+fi
+
+# ---------- 4. 重启服务 ----------
 if command -v pm2 >/dev/null 2>&1; then
   if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
     log "重启服务：pm2 restart $PM2_APP"
@@ -93,7 +109,7 @@ else
   warn "未安装 pm2，已跳过重启（需手动重启后端进程）"
 fi
 
-# ---------- 4. 重载 nginx ----------
+# ---------- 5. 重载 nginx ----------
 if [ "$DO_NGINX" = "1" ] && command -v nginx >/dev/null 2>&1; then
   log "校验并重载 nginx"
   nginx -t && nginx -s reload
