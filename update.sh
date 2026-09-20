@@ -4,7 +4,7 @@
 # 用法（在项目根目录执行）：
 #   bash update.sh              全量更新（默认）
 #   bash update.sh --no-deps    跳过 npm install，只构建
-#   bash update.sh --no-db      跳过数据库迁移（确认本次无 schema/迁移变更时用）
+#   bash update.sh --no-db      跳过数据库迁移检查（迁移由服务启动自愈，此项仅跳过 CLI 迁移与日志校验）
 #   bash update.sh --no-nginx   不重载 nginx
 #   bash update.sh --web        只构建 C 端官网（改官网文案/样式时用，最快）
 #   bash update.sh --admin      只构建管理后台
@@ -86,15 +86,19 @@ else
   build_dir web "C 端官网"
 fi
 
-# ---------- 3. 数据库迁移（必须在重启前，且失败绝不重启） ----------
-if [ "$ONLY" = "web" ] || [ "$ONLY" = "admin" ]; then
-  log "跳过数据库迁移（本次只构建前端）"
-elif [ "$DO_DB" = "0" ]; then
-  warn "跳过数据库迁移（--no-db）：确认本次无迁移变更，否则新代码会缺表/缺列"
+# ---------- 3. 数据库迁移 ----------
+# 迁移不由本脚本执行：服务启动时 schema-init（src/common/prisma/schema-init.ts，
+# SCHEMA_AUTO_INIT 默认开启）会自动应用 prisma/migrations 下未执行的迁移，
+# 连接串由 .env 的 DB_HOST/DB_USER/DB_NAME 等分项组装（安装向导会把整串 DATABASE_URL 注释掉），
+# 因此 prisma CLI 在多数部署下拿不到 DATABASE_URL，不能作为迁移入口。
+# 仅当 .env 配置了整串 DATABASE_URL 时才额外用 CLI 跑一次，且失败也不阻断（启动自愈兜底）。
+if [ "$ONLY" = "web" ] || [ "$ONLY" = "admin" ] || [ "$DO_DB" = "0" ]; then
+  log "跳过数据库迁移（只构建前端 / --no-db）：迁移在重启时由服务自愈应用"
+elif grep -Eq '^[[:space:]]*DATABASE_URL=.+' .env 2>/dev/null; then
+  log "检测到整串 DATABASE_URL，执行 prisma migrate deploy（失败不阻断）"
+  npm run prisma:deploy || warn "CLI 迁移未成功，将由服务重启时的自愈机制应用"
 else
-  log "执行数据库迁移：prisma migrate deploy（幂等，只跑未应用的迁移）"
-  npm run prisma:deploy ||
-    fail "数据库迁移失败，已中止重启。请先看上方报错修复，再重跑 bash update.sh"
+  log "未配置整串 DATABASE_URL（分项 DB_* 模式）：迁移交由服务重启时自愈应用"
 fi
 
 # ---------- 4. 重启服务 ----------
@@ -102,6 +106,14 @@ if command -v pm2 >/dev/null 2>&1; then
   if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
     log "重启服务：pm2 restart $PM2_APP"
     pm2 restart "$PM2_APP" --update-env
+    # 迁移在进程启动阶段执行，稍等后从日志确认结果
+    if [ "$DO_DB" = "1" ] && [ "$ONLY" != "web" ] && [ "$ONLY" != "admin" ]; then
+      log "等待启动自愈执行迁移（8s）"
+      sleep 8
+      pm2 logs "$PM2_APP" --lines 60 --nostream 2>/dev/null |
+        grep -E "已应用数据库迁移|数据库连接正常|数据库连接失败|迁移失败" ||
+        warn "日志中未匹配到迁移结果，请手动执行：pm2 logs $PM2_APP"
+    fi
   else
     warn "pm2 中未找到进程 $PM2_APP（首次部署请先 pm2 start），已跳过重启"
   fi
