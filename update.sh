@@ -15,6 +15,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+# 构建必须用 devDependencies（nest / vite / prisma 都在 dev 里）。
+# 若当前 shell 带着 NODE_ENV=production（例如为查库 source 过 .env），
+# npm 会按 --omit=dev 安装，并把已装的 dev 依赖整批删掉 → 构建时报 "nest: command not found"。
+unset NODE_ENV
+
 PM2_APP="${PM2_APP:-mpay}"
 DO_DEPS=1
 DO_DB=1
@@ -61,7 +66,7 @@ install_deps() {
   local dir="$1" name="$2"
   [ "$DO_DEPS" = "1" ] || return 0
   log "安装依赖：$name"
-  (cd "$dir" && npm install --no-audit --no-fund)
+  (cd "$dir" && npm install --include=dev --no-audit --no-fund)
 }
 
 build_dir() {
