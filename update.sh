@@ -9,7 +9,11 @@
 #   bash update.sh --web        只构建 C 端官网（改官网文案/样式时用，最快）
 #   bash update.sh --admin      只构建管理后台
 #
-# 可用环境变量覆盖：PM2_APP=mpay（pm2 进程名）
+# 可用环境变量覆盖：
+#   PM2_APP=mpay              pm2 进程名
+#   MEM_MIN_MB=800            构建前可用内存告警阈值（低于此值会警告并等待 10s）
+#   MEM_SKIP_WAIT=1           跳过低内存时的 10s 等待
+#   资源/数据库快照同时写入 storage/update.log
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,6 +61,68 @@ command -v node >/dev/null 2>&1 || fail "未找到 node，请先安装 Node.js"
 command -v npm >/dev/null 2>&1 || fail "未找到 npm"
 command -v git >/dev/null 2>&1 || fail "未找到 git"
 
+# ---------- 资源快照工具 ----------
+# 小内存机器上"跑一阵就卡死"最难的是事后无据可查：重启会清空现场。
+# 这里每次更新前后各记录一次内存/swap/负载与 MySQL 连接水位，落到 storage/update.log，
+# 事后能区分是"构建压死"还是"服务长跑泄漏/连接打满"。
+LOG_FILE="$ROOT/storage/update.log"
+mkdir -p "$ROOT/storage"
+
+env_val() {
+  local key="$1" v
+  [ -f .env ] || return 0
+  v=$(sed -n "s/^[[:space:]]*${key}=//p" .env | tail -n 1)
+  v=${v%\"}; v=${v#\"}; v=${v%\'}; v=${v#\'}
+  printf '%s' "$v"
+}
+
+mem_avail_mb() { awk '/MemAvailable/ {printf "%d", $2/1024}' /proc/meminfo; }
+
+mem_report() {
+  local total avail swap_total swap_used load
+  total=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo)
+  avail=$(mem_avail_mb)
+  swap_total=$(awk '/SwapTotal/ {printf "%d", $2/1024}' /proc/meminfo)
+  swap_used=$(( swap_total - $(awk '/SwapFree/ {printf "%d", $2/1024}' /proc/meminfo) ))
+  load=$(cut -d' ' -f1-3 /proc/loadavg)
+  printf '  内存：可用 %sMB / 共 %sMB ｜ swap：已用 %sMB / 共 %sMB ｜ 负载：%s\n' \
+    "$avail" "$total" "$swap_used" "$swap_total" "$load"
+}
+
+# MySQL 连接水位：Max_used_connections 是历史峰值，连接打满会造成 API 全线超时，
+# 而静态页面与宝塔面板仍正常——正是"网站能开、后台登不上"的典型特征。
+db_report() {
+  local host port user pass name out args=()
+  if ! command -v mysql >/dev/null 2>&1; then
+    printf '  MySQL：未安装 mysql 客户端，跳过\n'
+    return 0
+  fi
+  host=$(env_val DB_HOST); user=$(env_val DB_USER); pass=$(env_val DB_PASSWORD)
+  port=$(env_val DB_PORT); name=$(env_val DB_NAME)
+  if [ -z "$host" ] || [ -z "$user" ]; then
+    printf '  MySQL：.env 未配置 DB_HOST/DB_USER，跳过\n'
+    return 0
+  fi
+  args=(-h "$host" -P "${port:-3306}" -u "$user" -N -B)
+  [ -n "$pass" ] && args+=("-p${pass}")
+  out=$(mysql "${args[@]}" -e \
+    "SHOW VARIABLES LIKE 'max_connections'; \
+     SHOW STATUS LIKE 'Threads_connected'; \
+     SHOW STATUS LIKE 'Max_used_connections'; \
+     SHOW STATUS LIKE 'Aborted_connects';" 2>&1 |
+    grep -v 'Using a password') || out='(查询失败)'
+  printf '  MySQL(%s)：%s\n' "$name" "$(printf '%s' "$out" | tr '\n\t' ';=' | sed 's/;;*/; /g')"
+}
+
+snapshot() {
+  {
+    printf '[%s] %s ｜ %s\n' "$(date '+%F %T')" "$1" "$(git --no-pager log --oneline -1)"
+    mem_report
+    db_report
+    printf '\n'
+  } | tee -a "$LOG_FILE" || true
+}
+
 # ---------- 1. 同步代码 ----------
 log "同步代码：git pull --ff-only"
 git pull --ff-only ||
@@ -76,7 +142,20 @@ build_dir() {
   (cd "$dir" && npm run build)
 }
 
-# ---------- 2. 构建 ----------
+# ---------- 2. 构建前资源体检 ----------
+log "资源体检（构建前，同时写入 storage/update.log）"
+snapshot "构建前"
+MEM_MIN_MB="${MEM_MIN_MB:-800}"
+if [ "$(mem_avail_mb)" -lt "$MEM_MIN_MB" ]; then
+  warn "可用内存不足 ${MEM_MIN_MB}MB：nest + vite 构建峰值可达 1~2GB，小内存机器有被压到无响应的风险"
+  warn "建议先确认 swap 生效（swapon --show），或改用 bash update.sh --web / --admin 分步构建"
+  if [ "${MEM_SKIP_WAIT:-0}" != "1" ]; then
+    log "10 秒后继续（Ctrl+C 可中止；也可设 MEM_SKIP_WAIT=1 跳过等待）"
+    sleep 10
+  fi
+fi
+
+# ---------- 3. 构建 ----------
 if [ "$ONLY" = "web" ]; then
   build_dir web "C 端官网"
 elif [ "$ONLY" = "admin" ]; then
@@ -91,7 +170,7 @@ else
   build_dir web "C 端官网"
 fi
 
-# ---------- 3. 数据库迁移 ----------
+# ---------- 4. 数据库迁移 ----------
 # 迁移不由本脚本执行：服务启动时 schema-init（src/common/prisma/schema-init.ts，
 # SCHEMA_AUTO_INIT 默认开启）会自动应用 prisma/migrations 下未执行的迁移，
 # 连接串由 .env 的 DB_HOST/DB_USER/DB_NAME 等分项组装（安装向导会把整串 DATABASE_URL 注释掉），
@@ -106,7 +185,7 @@ else
   log "未配置整串 DATABASE_URL（分项 DB_* 模式）：迁移交由服务重启时自愈应用"
 fi
 
-# ---------- 4. 重启服务 ----------
+# ---------- 5. 重启服务 ----------
 if command -v pm2 >/dev/null 2>&1; then
   if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
     log "重启服务：pm2 restart $PM2_APP"
@@ -126,14 +205,18 @@ else
   warn "未安装 pm2，已跳过重启（需手动重启后端进程）"
 fi
 
-# ---------- 5. 重载 nginx ----------
+# ---------- 6. 重载 nginx ----------
 if [ "$DO_NGINX" = "1" ] && command -v nginx >/dev/null 2>&1; then
   log "校验并重载 nginx"
   nginx -t && nginx -s reload
 fi
 
+log "资源体检（更新后）"
+snapshot "更新后"
 log "更新完成：$(git --no-pager log --oneline -1)"
-cat <<'EOF'
+cat <<EOF
+
+快照日志：$LOG_FILE
 
 验证清单：
   官网             https://mpay.7zan.com/
