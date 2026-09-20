@@ -2,6 +2,9 @@
   "name": "pay-center-web",
   "version": "1.0.0",
   "private": true,
+  "allowScripts": {
+    "esbuild": true
+  },
   "description": "统一支付中心对外官网（渠道申请 / 品牌展示 / 产品文档入口）",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5273",

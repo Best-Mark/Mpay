@@ -2,6 +2,9 @@
   "name": "pay-center-admin",
   "version": "1.0.0",
   "private": true,
+  "allowScripts": {
+    "esbuild": true
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
